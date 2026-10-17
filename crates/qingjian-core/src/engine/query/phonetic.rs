@@ -93,7 +93,14 @@ impl Engine {
         let mut scored = Vec::new();
         // 不同切分共享很多前缀（`zh g d o…` 的各种切法前几段一样），同一次查询里同一个模式只查一遍
         let mut memo: HashMap<String, Vec<Match<'_>>> = HashMap::new();
-        for segmentation in &segmentations {
+        // 严格匹配：第一种切分已把整段输入按完整音节读完（`yiban` → yi ban）时，其他切分（`yi ba n…` / `yi b… an`）
+        // 只是同一串字母的另一种读法，它们的前缀词（一把 / 一边）读音与敲的对不上，不收；
+        // 还在敲（末尾是单个声母）或简拼时备选切分的前缀词照收。缺省关：这些词也是敲得不准时的救回路径（`jitai` → 几天）
+        let skip_alternate_prefixes = self.strict_match
+            && segmentations
+                .first()
+                .is_some_and(|first| first.syllables.iter().all(|syllable| syllable.complete));
+        for (index, segmentation) in segmentations.iter().enumerate() {
             let mut patterns = segmentation.patterns();
             let count = patterns.len();
             let last = &segmentation.syllables[count - 1];
@@ -125,7 +132,12 @@ impl Engine {
             // 输入的前缀也出候选（`kaifazhe` → 开发、开），否则长句没法逐词上屏。
             // 只收音节数正好等于前缀长度的词，更长的词会与输入后面的音节冲突。
             // 前缀不含最后一个位置，因此可复用上面的扩展结果。
-            for prefix_len in (1..count).rev() {
+            let prefix_lens = if skip_alternate_prefixes && index > 0 {
+                1..1
+            } else {
+                1..count
+            };
+            for prefix_len in prefix_lens.rev() {
                 let prefix = &patterns[..prefix_len];
                 let prefix_letters: usize = prefix.iter().map(|p| p.text.len()).sum();
                 let hits = memo

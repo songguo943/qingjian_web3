@@ -95,6 +95,10 @@ pub struct GeneralConfig {
     /// 有中文候选时英文最高排到第几位。缺省 1（不限制）；没有中文候选时英文照旧第一。
     pub english_min_position: usize,
 
+    /// 严格匹配：整段拼音已能按完整音节读完时，不再给只覆盖前一部分的前缀词（`yiban` 不出 一边 / 一把）。缺省关；
+    /// 开了之后敲得不准时靠这些词救回的候选（`jitai` → 几天）会没有。
+    pub strict_match: bool,
+
     /// 候选后面一次最多配几个 emoji（`kaixin` → 开心 😄），0 时候选里只有字词。
     pub emoji: EmojiCount,
 
@@ -233,6 +237,7 @@ impl Default for GeneralConfig {
             english_in_chinese: true,
             english_max_in_chinese: qingjian_core::ENGLISH_CANDIDATES_MAX,
             english_min_position: 1,
+            strict_match: false,
             emoji: EmojiCount::default(),
             kaomoji: EmojiCount::new(1),
             symbols: EmojiCount::new(1),
