@@ -144,6 +144,7 @@ impl Engine {
         // 词图里没有 技能，敲错边读出 近藤；`ceshi` 读出 的是。词级候选里有音节正好拼成整段输入的词时退回原样的路径。
         // 只认语言模型认识的主词库词（没接模型时认全部主词库词）：青简词库里几乎每种读音都有个词
         //（`zanen` 的 赞恩 / 咋嫩、`jiusi` 的 就死），算上它们敲错就再也纠不回 咱们 / 就是；模型没见过的词交给词图按兜底分去比
+        let mut behind_spelled: Option<String> = None;
         if paths[0].altered() {
             let letters = best.joined("");
             let spelled_exactly = items.iter().any(|c| {
@@ -155,6 +156,15 @@ impl Engine {
             });
             if spelled_exactly {
                 paths = self.sentence_paths(&best.patterns(), false, false, wanted);
+                // 敲错变体关掉后路径仍靠模糊音读成多词整句（n/l 开着时 `lianxiang` 读出 年 + 想）：整句照给，
+                // 但排在敲对的词后面，不插到最前压住它（「输入正确的词仍然优先，模糊匹配的排在其后」）。
+                // 模糊音读出单个词（`yingan` → 阴暗）不在此列，那条仍按下面的规则作为词候选插到最前
+                if paths
+                    .first()
+                    .is_some_and(|path| path.altered() && path.word_count() >= 2)
+                {
+                    behind_spelled = Some(letters);
+                }
             }
         }
         let mut out: Vec<Candidate> = Vec::new();
@@ -219,6 +229,16 @@ impl Engine {
                 translation: None,
                 aux_code: None,
             });
+        }
+        if let Some(letters) = behind_spelled {
+            let after = items
+                .iter()
+                .position(|c| c.kind == CandidateKind::Chinese && c.syllables.concat() == letters)
+                .map_or(0, |index| index + 1);
+            for (offset, candidate) in out.into_iter().enumerate() {
+                items.insert((after + offset).min(items.len()), candidate);
+            }
+            return Vec::new();
         }
         out
     }
