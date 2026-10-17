@@ -156,6 +156,20 @@ pub fn candidates(ui: &mut Ui<Message>, page: &Page) -> Result<Vec<NodeId>, Rend
     out.push(section_title(ui, theme, "排序")?);
     out.push(group(ui, theme, &rows)?);
 
+    let rows = vec![toggle_info(
+        ui,
+        page,
+        "严格匹配",
+        Some(
+            "拼音敲完整时不给读音对不上的词（yiban 不出 一边）；敲得不准时靠它救回的词（jitai → 几天）也会没有",
+        ),
+        ("general", "strict_match"),
+        general.strict_match,
+        false,
+    )?];
+    out.push(section_title(ui, theme, "匹配")?);
+    out.push(group(ui, theme, &rows)?);
+
     let rows = vec![
         toggle_info(
             ui,
