@@ -38,7 +38,7 @@ impl Engine {
             let hit = &item.hit;
             // 按输入串记的选择用候选自己的拼音当键，与全拼共用一份学习数据
             let input: String = hit.syllables().collect();
-            let choice = self.learner.choice_weight(&input, hit.text);
+            let choice = self.preference_choice(&input, hit.text);
             (choice, self.word_log_prob(hit, log_total))
         });
         let mut items: Vec<Candidate> = Vec::with_capacity(scored.len());

@@ -45,9 +45,9 @@ impl Engine {
         let start = Instant::now();
         let letters = choice_key(keys, keys.len());
         ranking::rank(&mut scored, MAX_CANDIDATES, |item| {
-            let choice = letters
-                .get(..item.coverage)
-                .map_or(0, |input| self.preference_choice(input, item.hit.text));
+            let choice = letters.get(..item.coverage).map_or(0.into(), |input| {
+                self.preference_choice(input, item.hit.text)
+            });
             let log_prob = sentence::transition_log_prob(
                 &*self.language_model,
                 self.personal(),

@@ -212,10 +212,13 @@ fn heuristic_private_never_overrides_a_password_field_declared_by_the_shell() {
     assert!(!engine.is_private());
 }
 
+/// `ChoiceSpy` 记下的 `record_choice` 调用：（输入串键，词）。
+type ChoiceLog = std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>;
+
 /// 记下 `record_choice` 调用的桩：整串助记词不该有一个词落进选择表。
 #[derive(Default)]
 struct ChoiceSpy {
-    choices: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    choices: ChoiceLog,
 }
 
 impl Learner for ChoiceSpy {
@@ -231,10 +234,7 @@ impl Learner for ChoiceSpy {
     }
 }
 
-fn spy_engine() -> (
-    Engine,
-    std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
-) {
+fn spy_engine() -> (Engine, ChoiceLog) {
     let spy = ChoiceSpy::default();
     let log = spy.choices.clone();
     let engine = Engine::new(Dictionary::parse(SAMPLE).unwrap()).with_learner(Box::new(spy));

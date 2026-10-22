@@ -38,10 +38,30 @@ pub fn contention_key(choice: u32, leader: u32) -> u32 {
     }
 }
 
+/// 一条命中在同输入串下的选择次数：`count` 是长期次数，`boosted` 是再加上短期权重折算份额后的有效次数。
+/// 竞争圈以各组 `count` 的最高者为基准（短期权重只能让词**进**圈，不能把别人挤出圈：`ba` 的 吧 最近连着选了很多次，
+/// 「帮我」后面也不能因此把 把 挤出竞争、翻不回来），圈内圈外的排序键用 `boosted`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChoiceWeight {
+    pub count: u32,
+    pub boosted: u32,
+}
+
+impl From<u32> for ChoiceWeight {
+    /// 没有短期权重：有效次数就是长期次数。
+    fn from(count: u32) -> Self {
+        Self {
+            count,
+            boosted: count,
+        }
+    }
+}
+
 /// 短期权重折算成「选择次数」的倍数：排序用的有效次数 = 长期次数 + 倍数 × 短期权重。
-/// 100 是回放调出来的（冷启动回放 β = 3 / 10 / 30 / 100 / 300：词首选 90.2 / 90.2 / 90.2 / 90.1 / 90.0%，
-/// `you → 又` 没命中 39 / 38 / 34 / 29 / 27 次；基线 89.5% 与 40 次）。短期权重为 0（老数据、没最近选过）时有效次数就是长期次数，行为等于升级前。
-pub const RECENT_WEIGHT_BETA: f64 = 100.0;
+/// 30 是回放调出来的：竞争圈以长期次数为基准后（见 [`ChoiceWeight`]），冷启动回放 β = 10 / 30 / 100 / 300 / 1000 里
+/// 词首选 90.2 / 90.3 / 90.3 / 90.3 / 90.3%、`you → 又` 没命中 38 / 37 / 36 / 36 / 36 次（基线 89.5% 与 40 次）——
+/// 30 以后不再变，取最小的。短期权重只决定进不进圈，圈内仍由上下文决定，所以 又 最多追到 有 的身后。
+pub const RECENT_WEIGHT_BETA: f64 = 30.0;
 
 /// 用户选择次数的加分系数：加分 = 系数 × ln(1 + min(次数, [`WEIGHT_CAP`]))。
 /// 这个加分只负责「同音词里偏向用户常选的那个」，所以既取对数又封顶（最多约 1.5 分，e^1.5 ≈ 4.5 倍），
@@ -61,13 +81,13 @@ pub fn weight_bonus(count: u32) -> f64 {
 }
 
 /// 排序并按词文本去重（同一个词可能被多种切分命中，保留得分最高的一条），最多留 `limit` 条。
-/// `context` 给每条命中算（同输入串下的选择次数, 上下文 log 概率），只对预选后剩下的那些调用。
+/// `context` 给每条命中算（同输入串下的选择次数 [`ChoiceWeight`], 上下文 log 概率），只对预选后剩下的那些调用。
 ///
 /// 排序键先算好再排：单字母简拼能命中两万条，比较器里每次数字符数会让排序占掉几十毫秒；去重也只做到够数为止。
 pub fn rank(
     items: &mut Vec<Scored<'_>>,
     limit: usize,
-    context: impl Fn(&Scored<'_>) -> (u32, f64),
+    context: impl Fn(&Scored<'_>) -> (ChoiceWeight, f64),
 ) {
     // 远超上限时先按结构键 + 词频线性选出前面一段：同一个词会被多种切分命中，多选一倍留给去重（结果仍可能略少于上限，无妨）
     let preselect = limit.saturating_mul(2);
@@ -80,7 +100,7 @@ pub fn rank(
         keyed.truncate(preselect);
         items.extend(keyed.into_iter().map(|(_, item)| item));
     }
-    let scored: Vec<(Scored<'_>, u32, f64)> = items
+    let scored: Vec<(Scored<'_>, ChoiceWeight, f64)> = items
         .drain(..)
         .map(|item| {
             let (choice, log_prob) = context(&item);
@@ -91,13 +111,13 @@ pub fn rank(
     let mut leader: HashMap<scored::Group, u32> = HashMap::new();
     for (item, choice, _) in &scored {
         let top = leader.entry(item.group()).or_insert(0);
-        *top = (*top).max(*choice);
+        *top = (*top).max(choice.count);
     }
     let mut keyed: Vec<(SortKey<'_>, Scored<'_>)> = scored
         .into_iter()
         .map(|(item, choice, log_prob)| {
             let score = log_prob + weight_bonus(item.weight) - item.penalty;
-            let key = contention_key(choice, leader[&item.group()]);
+            let key = contention_key(choice.boosted, leader[&item.group()]);
             (item.key(key, score), item)
         })
         .collect();
@@ -160,7 +180,7 @@ mod tests {
                 tone_cost: 0,
             },
         ];
-        rank(&mut items, usize::MAX, |_| (0, 0.0));
+        rank(&mut items, usize::MAX, |_| (0.into(), 0.0));
         let texts: Vec<&str> = items.iter().map(|s| s.hit.text).collect();
         assert_eq!(texts, ["开发", "开放", "开发者"]);
     }
@@ -188,14 +208,14 @@ mod tests {
             },
         ];
         // 上下文说 吧 更像：词频高的 把 让位
-        let by_context = |s: &Scored<'_>| (0, if s.hit.text == "吧" { -1.0 } else { -6.0 });
+        let by_context = |s: &Scored<'_>| (0.into(), if s.hit.text == "吧" { -1.0 } else { -6.0 });
         rank(&mut items, usize::MAX, by_context);
         let texts: Vec<&str> = items.iter().map(|s| s.hit.text).collect();
         assert_eq!(texts, ["吧", "把"]);
         // 同一输入串下选过的压过上下文
         rank(&mut items, usize::MAX, |s| {
             (
-                u32::from(s.hit.text == "把"),
+                u32::from(s.hit.text == "把").into(),
                 if s.hit.text == "吧" { -1.0 } else { -6.0 },
             )
         });
@@ -204,7 +224,7 @@ mod tests {
         for item in &mut items {
             item.weight = u32::from(item.hit.text == "把") * 3;
         }
-        rank(&mut items, usize::MAX, |_| (0, -2.0));
+        rank(&mut items, usize::MAX, |_| (0.into(), -2.0));
         assert_eq!(items[0].hit.text, "把");
         for item in &mut items {
             item.weight = 3;
@@ -214,7 +234,7 @@ mod tests {
                 0.0
             };
         }
-        rank(&mut items, usize::MAX, |_| (0, -2.0));
+        rank(&mut items, usize::MAX, |_| (0.into(), -2.0));
         assert_eq!(items[0].hit.text, "吧");
     }
 
@@ -233,9 +253,9 @@ mod tests {
         rank(&mut items, usize::MAX, |s| {
             (
                 if s.hit.text == "把" {
-                    counts.0
+                    counts.0.into()
                 } else {
-                    counts.1
+                    counts.1.into()
                 },
                 if s.hit.text == context_prefers {
                     -1.0
@@ -281,6 +301,53 @@ mod tests {
         assert_eq!(rank_homophones((10, 5), "吧"), "吧");
     }
 
+    /// 吧 的长期次数 `counts.1`、有效次数（算上最近连着选的份额）`boosted`；把 没有短期权重。
+    fn rank_with_recent_boost(counts: (u32, u32), boosted: u32, context_prefers: &str) -> String {
+        let make = |text, frequency| Scored {
+            hit: hit(text, "ba", frequency, true),
+            full_last: true,
+            coverage: 2,
+            abbreviated: 0,
+            weight: 0,
+            penalty: 0.0,
+            tone_cost: 0,
+        };
+        let mut items = vec![make("把", 3_000_000), make("吧", 2_000_000)];
+        rank(&mut items, usize::MAX, |s| {
+            (
+                if s.hit.text == "把" {
+                    counts.0.into()
+                } else {
+                    ChoiceWeight {
+                        count: counts.1,
+                        boosted,
+                    }
+                },
+                if s.hit.text == context_prefers {
+                    -1.0
+                } else {
+                    -6.0
+                },
+            )
+        });
+        items[0].hit.text.to_owned()
+    }
+
+    #[test]
+    fn recent_weight_never_pushes_a_contender_out_of_the_circle() {
+        // ba：把 154 / 吧 161，吧 最近连着选了很多次，有效次数 461：圈以长期次数 161 为基准，把 仍在圈内，
+        // 「帮我」后面上下文说 把 就是 把
+        assert_eq!(rank_with_recent_boost((154, 161), 461, "把"), "把");
+        assert_eq!(rank_with_recent_boost((154, 161), 461, "吧"), "吧");
+    }
+
+    #[test]
+    fn recent_weight_lets_a_lagging_word_into_the_circle() {
+        // 又 / 有：长期 39 对 150，圈外；最近连着选 又，有效次数 139 进圈，由上下文决定（不再被硬压在后面）
+        assert_eq!(rank_with_recent_boost((150, 39), 39, "吧"), "把");
+        assert_eq!(rank_with_recent_boost((150, 39), 139, "吧"), "吧");
+    }
+
     #[test]
     fn one_selection_beats_never_chosen() {
         assert_eq!(rank_homophones((0, 1), "把"), "吧");
@@ -310,7 +377,7 @@ mod tests {
                 tone_cost: 0,
             },
         ];
-        rank(&mut items, usize::MAX, |_| (0, 0.0));
+        rank(&mut items, usize::MAX, |_| (0.into(), 0.0));
         assert_eq!(items[0].hit.text, "开放");
     }
 
@@ -344,7 +411,7 @@ mod tests {
                 tone_cost: 0,
             },
         ];
-        rank(&mut items, usize::MAX, |_| (0, 0.0));
+        rank(&mut items, usize::MAX, |_| (0.into(), 0.0));
         assert_eq!(items.len(), 1);
         assert!(items[0].hit.exact);
     }

@@ -20,18 +20,27 @@ pub(super) use result::join_marked;
 pub(super) use snapshot::QuerySnapshot;
 
 impl Engine {
-    /// 排序用的选择次数：自适应学习开着时，长期次数再加上短期权重折算的份额（[`ranking::RECENT_WEIGHT_BETA`]），
-    /// 最近连着选的词因此更容易进竞争圈；关着、或这个词没有短期权重时就是 `choice_weight`，与升级前逐项一样。
-    pub(in crate::engine) fn preference_choice(&self, input: &str, text: &str) -> u32 {
+    /// 排序用的选择次数：长期次数 `count`，自适应学习开着且有短期权重时再带上折算后的有效次数 `boosted`
+    /// （[`ranking::RECENT_WEIGHT_BETA`]）。竞争圈以长期次数为基准，所以最近连着选的词只会更容易**进**圈，
+    /// 不会把上下文该出的词挤出圈；关着、或这个词没有短期权重时就是 `choice_weight`，与升级前逐项一样。
+    pub(in crate::engine) fn preference_choice(
+        &self,
+        input: &str,
+        text: &str,
+    ) -> ranking::ChoiceWeight {
         let count = self.learner.choice_weight(input, text);
         if !self.adaptive_learning {
-            return count;
+            return count.into();
         }
         let recent = self.learner.choice_stats(input, text).recent;
         if recent <= 0.0 {
-            return count;
+            return count.into();
         }
-        count.saturating_add((ranking::RECENT_WEIGHT_BETA * f64::from(recent)).round() as u32)
+        ranking::ChoiceWeight {
+            count,
+            boosted: count
+                .saturating_add((ranking::RECENT_WEIGHT_BETA * f64::from(recent)).round() as u32),
+        }
     }
 
     /// 解析当前缓冲区并生成排好序的候选。**不带译文**，译文由 [`Self::annotate`] 补。

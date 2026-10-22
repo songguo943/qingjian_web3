@@ -125,7 +125,7 @@
 
 - 配置项 `[general] adaptive_learning`，缺省 `true`，写进配置模板的注释。
 - `Engine` 加 `set_adaptive_learning(bool)`；开关关掉时第 4–6 节全部退回现状，第 1–2 节的记录照常进行（保证重新打开时有数据）。
-- 接线位置：macOS 宿主读配置处、Linux Server 与 Windows Server 的启动与热重载各一处（共 4 处），沿用严格匹配的做法；另加命令行参数 `--adaptive` 便于回放对比。
+- 接线位置：macOS 宿主读配置处、Linux Server 与 Windows Server 的启动与热重载各一处（共 4 处），沿用严格匹配的做法；另加命令行参数 `--no-adaptive`（缺省开，关掉它便于回放对比）。
 - 设置程序只改新的 `apps/settings`「候选」页加一个开关；macOS 旧偏好页（`apps/macos/src/preferences`）和 Windows 旧设置面板不动。
 - 开关缺省开，所以三个平台的行为都会变；本次只在用户的 macOS 上验证，其余平台的接线只保证能编译。
 

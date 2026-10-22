@@ -876,7 +876,8 @@ fn first_chinese(engine: &mut Engine) -> String {
 
 #[test]
 fn recent_selections_lift_a_word_in_ranking() {
-    // 又 最近连着选了 8 次（短期权重 8.0）：折算后 39 + 10 × 8 = 119，不少于 有 的 150 + 10 × 1.2 = 162 的一半，进圈，先验高的 又 排第一
+    // 又 最近连着选了 8 次（短期权重 8.0）：有效次数 39 + 30 × 8 = 279；竞争圈以长期次数最高的 有（150）为基准，
+    // 又 的 39 不到一半本来在圈外，279 进圈，圈内交给上下文，先验高的 又 排第一
     let mut engine = you_engine(true);
     assert_eq!(first_chinese(&mut engine), "又");
 }
