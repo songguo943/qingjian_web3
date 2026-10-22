@@ -9,23 +9,34 @@ fn generalizes(input: &str, reading: &str) -> bool {
     !reading.is_empty() && reading != input && input.len() >= 2
 }
 
-/// 选择的计数表里记一份；同一 (键, 词) 已有条目就累加。
-fn bump_choice(choices: &mut HashMap<String, HashMap<String, u32>>, key: &str, text: &str) {
-    *choices
+/// 选择的计数表里记一份；同一 (键, 词) 已有条目就累加并刷新短期权重。
+fn bump_choice(
+    choices: &mut HashMap<String, HashMap<String, ChoiceEntry>>,
+    key: &str,
+    text: &str,
+    clock: u64,
+    fresh: bool,
+) {
+    choices
         .entry(key.to_owned())
         .or_default()
         .entry(text.to_owned())
-        .or_default() += 1;
+        .or_default()
+        .bump(clock, fresh);
 }
 
-/// 从选择的计数表里退回一份，空了连键一起删。
-fn remove_choice(choices: &mut HashMap<String, HashMap<String, u32>>, key: &str, text: &str) {
+/// 从选择的计数表里退回一份，次数减到零就删条目，空了连键一起删。
+fn remove_choice(
+    choices: &mut HashMap<String, HashMap<String, ChoiceEntry>>,
+    key: &str,
+    text: &str,
+) {
     let Some(texts) = choices.get_mut(key) else {
         return;
     };
-    if let Some(count) = texts.get_mut(text) {
-        *count = count.saturating_sub(1);
-        if *count == 0 {
+    if let Some(entry) = texts.get_mut(text) {
+        entry.unbump();
+        if entry.count == 0 {
             texts.remove(text);
         }
     }
@@ -35,12 +46,15 @@ fn remove_choice(choices: &mut HashMap<String, HashMap<String, u32>>, key: &str,
 }
 
 /// 键下的选择次数。
-fn lookup_choice(choices: &HashMap<String, HashMap<String, u32>>, key: &str, text: &str) -> u32 {
+fn lookup_choice(
+    choices: &HashMap<String, HashMap<String, ChoiceEntry>>,
+    key: &str,
+    text: &str,
+) -> u32 {
     choices
         .get(key)
         .and_then(|texts| texts.get(text))
-        .copied()
-        .unwrap_or(0)
+        .map_or(0, |entry| entry.count)
 }
 
 impl Learner for FrequencyLearner {
@@ -66,9 +80,11 @@ impl Learner for FrequencyLearner {
             return;
         }
         self.tick();
-        bump_choice(&mut self.choices, input, text);
+        self.clock += 1;
+        // 原样上屏（`<raw>`）与读音键下泛化出来的那份不算「自启用以来」的证据
+        bump_choice(&mut self.choices, input, text, self.clock, text != RAW_MARK);
         if generalizes(input, reading) {
-            bump_choice(&mut self.choices, reading, text);
+            bump_choice(&mut self.choices, reading, text, self.clock, false);
         }
         self.choices_dirty = true;
         if self.choice_count() > MAX_CHOICE_ENTRIES {
@@ -79,6 +95,27 @@ impl Learner for FrequencyLearner {
 
     fn choice_weight(&self, input: &str, text: &str) -> u32 {
         lookup_choice(&self.choices, input, text)
+    }
+
+    fn choice_stats(&self, input: &str, text: &str) -> ChoiceStats {
+        self.choices
+            .get(input)
+            .and_then(|texts| texts.get(text))
+            .map_or_else(ChoiceStats::default, |entry| ChoiceStats {
+                count: entry.count,
+                recent: entry.recent_at(self.clock),
+                fresh: entry.fresh,
+            })
+    }
+
+    fn input_evidence(&self, input: &str) -> u32 {
+        self.choices.get(input).map_or(0, |texts| {
+            texts
+                .iter()
+                .filter(|(text, _)| text.as_str() != RAW_MARK)
+                .map(|(_, entry)| entry.fresh)
+                .sum()
+        })
     }
 
     fn record_raw(&mut self, input: &str) {
@@ -264,7 +301,11 @@ impl Learner for FrequencyLearner {
     }
 
     fn demotion(&self, input: &str, text: &str) -> u32 {
-        lookup_choice(&self.demoted, input, text)
+        self.demoted
+            .get(input)
+            .and_then(|texts| texts.get(text))
+            .copied()
+            .unwrap_or(0)
     }
 
     fn forget_english(&mut self, word: &str) -> bool {

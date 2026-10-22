@@ -1,6 +1,7 @@
 mod decay;
 mod demotions;
 mod learner_impl;
+mod preference;
 mod tables;
 
 use std::cell::Cell;
@@ -8,12 +9,13 @@ use std::collections::BTreeMap;
 
 use decay::{DEFAULT_HALF_LIFE_DAYS, Decay};
 use foldhash::HashMap;
+use preference::ChoiceEntry;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use qingjian_core::sentence::{Context, UserNgram};
 use qingjian_core::storage::{read_text_lossy, write_atomic};
-use qingjian_core::{Candidate, Forgotten, Learner};
+use qingjian_core::{Candidate, ChoiceStats, Forgotten, Learner};
 use qingjian_dictionary::{Dictionary, WordList};
 
 use crate::error::LearningError;
@@ -93,7 +95,10 @@ pub struct FrequencyLearner {
     ngram_dirty: bool,
 
     /// 输入串 → (词 → 在这个输入串下被选的次数)。读音键与字面键混在同一张表（见 [`Learner::record_choice`]）。
-    choices: HashMap<String, HashMap<String, u32>>,
+    choices: HashMap<String, HashMap<String, ChoiceEntry>>,
+
+    /// 提交时钟：每记一次输入串下的选择走一格，短期权重按它衰减（见 [`preference`]）。
+    clock: u64,
 
     /// 按输入串记的选择自上次保存后是否有变化。
     choices_dirty: bool,
@@ -134,6 +139,7 @@ impl Default for FrequencyLearner {
             ngram: UserNgram::default(),
             ngram_dirty: false,
             choices: HashMap::default(),
+            clock: 0,
             choices_dirty: false,
             english: BTreeMap::default(),
             english_list: None,

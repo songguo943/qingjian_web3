@@ -125,10 +125,13 @@ impl FrequencyLearner {
                 continue;
             };
             if count > 0 {
-                self.choices
-                    .entry(input.to_owned())
-                    .or_default()
-                    .insert(text.to_owned(), count);
+                self.choices.entry(input.to_owned()).or_default().insert(
+                    text.to_owned(),
+                    ChoiceEntry {
+                        count,
+                        ..ChoiceEntry::default()
+                    },
+                );
             }
         }
         skipped
@@ -138,7 +141,11 @@ impl FrequencyLearner {
         let mut rows: Vec<(&String, &String, &u32)> = self
             .choices
             .iter()
-            .flat_map(|(input, texts)| texts.iter().map(move |(text, count)| (input, text, count)))
+            .flat_map(|(input, texts)| {
+                texts
+                    .iter()
+                    .map(move |(text, entry)| (input, text, &entry.count))
+            })
             .collect();
         rows.sort_by(|a, b| {
             a.0.cmp(b.0)
@@ -271,9 +278,10 @@ impl FrequencyLearner {
     /// 所有按输入串记的计数减半，去掉减到零的。
     pub(super) fn decay_choices(&mut self) {
         for texts in self.choices.values_mut() {
-            texts.retain(|_, count| {
-                *count /= 2;
-                *count > 0
+            texts.retain(|_, entry| {
+                entry.count /= 2;
+                entry.fresh = entry.fresh.min(entry.count);
+                entry.count > 0
             });
         }
         self.choices.retain(|_, texts| !texts.is_empty());

@@ -4,6 +4,19 @@ use super::Forgotten;
 use crate::candidate::Candidate;
 use crate::sentence::{Context, UserNgram};
 
+/// 一个候选在某个输入串下被选择的情况，供排序、英文 / emoji 摆放、整句让位读取。
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ChoiceStats {
+    /// 长期次数，不衰减；与 [`Learner::choice_weight`] 相同。
+    pub count: u32,
+
+    /// 短期权重：按提交时钟衰减，最近连着选它时大，之后每提交一个词就衰减一点。
+    pub recent: f32,
+
+    /// 自启用偏好模型以来的次数；旧数据读进来是 0，所以老用户升级当天没有任何「证据」。
+    pub fresh: u32,
+}
+
 /// 用户词频学习。
 pub trait Learner: Send {
     /// 用户上屏了某个候选。
@@ -23,6 +36,17 @@ pub trait Learner: Send {
 
     /// `text` 在输入串 `input` 下被选过的次数（泛化在记录侧完成，查询只看字面键）；没记录返回 0。
     fn choice_weight(&self, _input: &str, _text: &str) -> u32 {
+        0
+    }
+
+    /// `text` 在输入串 `input` 下被选择的完整情况（长期次数、短期权重、自启用以来的次数）；没记录是全零。
+    fn choice_stats(&self, _input: &str, _text: &str) -> ChoiceStats {
+        ChoiceStats::default()
+    }
+
+    /// 输入串 `input` 下「自启用以来」累计上屏了多少次（只算字面键，不含原样上屏与读音键下的泛化记录）：
+    /// 判断「这个输入串打了很多次、却从没选过某个候选」的证据；没记录返回 0。
+    fn input_evidence(&self, _input: &str) -> u32 {
         0
     }
 

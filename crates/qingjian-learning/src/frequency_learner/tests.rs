@@ -461,3 +461,83 @@ fn choices_generalize_by_reading_key() {
     // 与撤销无关的记录还在：意义 / 上面（两条键）/ 该
     assert_eq!(learner.choice_count(), 4);
 }
+
+#[test]
+fn choice_recent_decays_by_the_commit_clock() {
+    let mut learner = FrequencyLearner::default();
+    for _ in 0..8 {
+        learner.record_choice("you", "", "又");
+    }
+    // 连续 8 次：dee = Σ e^(−k/200)，k = 0..7，约 7.86
+    let hot = learner.choice_stats("you", "又").recent;
+    assert!((7.7..=8.0).contains(&hot), "连选 8 次后的短期权重 {hot}");
+
+    // 之后别的词又记了 400 次：时钟走了 400 格，权重按 e^(−400/200) = e^−2 衰减
+    for index in 0..400 {
+        learner.record_choice("other", "", &format!("词{index}"));
+    }
+    let cold = learner.choice_stats("you", "又").recent;
+    assert!(
+        (cold - hot * (-2.0_f32).exp()).abs() < 0.02,
+        "衰减后 {cold}，期望约 {}",
+        hot * (-2.0_f32).exp()
+    );
+}
+
+#[test]
+fn choice_weight_still_counts_forever() {
+    let mut learner = FrequencyLearner::default();
+    for _ in 0..8 {
+        learner.record_choice("you", "", "又");
+    }
+    for index in 0..400 {
+        learner.record_choice("other", "", &format!("词{index}"));
+    }
+    assert_eq!(learner.choice_weight("you", "又"), 8);
+    assert_eq!(learner.choice_stats("you", "又").count, 8);
+    assert_eq!(
+        learner.choice_stats("nothing", "此"),
+        qingjian_core::ChoiceStats::default()
+    );
+}
+
+#[test]
+fn unrecord_rolls_back_count_and_fresh_and_approximates_recent() {
+    let mut learner = FrequencyLearner::default();
+    learner.record_choice("ba", "", "吧");
+    learner.record_choice("ba", "", "吧");
+    let before = learner.choice_stats("ba", "吧");
+    assert_eq!((before.count, before.fresh), (2, 2));
+
+    learner.unrecord_choice("ba", "", "吧");
+    let after = learner.choice_stats("ba", "吧");
+    assert_eq!((after.count, after.fresh), (1, 1));
+    assert!(
+        (after.recent - (before.recent - 1.0).max(0.0)).abs() < 1e-4,
+        "撤销后 {} 应为 {}",
+        after.recent,
+        before.recent - 1.0
+    );
+
+    // 只记过一次再撤销：条目整个消失
+    learner.unrecord_choice("ba", "", "吧");
+    assert_eq!(
+        learner.choice_stats("ba", "吧"),
+        qingjian_core::ChoiceStats::default()
+    );
+}
+
+#[test]
+fn input_evidence_ignores_raw_and_reading_keys() {
+    let mut learner = FrequencyLearner::default();
+    learner.record_raw("hello");
+    learner.record_choice("wod", "wode", "我的");
+    learner.record_choice("wod", "wode", "沃德");
+    // 原样上屏不算证据；读音键（`wode`）下那份是泛化出来的，也不算
+    assert_eq!(learner.input_evidence("hello"), 0);
+    assert_eq!(learner.input_evidence("wod"), 2);
+    assert_eq!(learner.input_evidence("wode"), 0);
+    // 读音键下的条目照样能按字面查到次数，只是没有「自启用以来」的次数
+    let stats = learner.choice_stats("wode", "我的");
+    assert_eq!((stats.count, stats.fresh), (1, 0));
+}

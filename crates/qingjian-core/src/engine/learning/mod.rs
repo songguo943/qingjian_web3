@@ -14,7 +14,7 @@ mod learner;
 mod muted;
 
 pub use forgotten::Forgotten;
-pub use learner::{Learner, NoLearner};
+pub use learner::{ChoiceStats, Learner, NoLearner};
 pub(super) use muted::MutedLearner;
 
 impl Engine {
