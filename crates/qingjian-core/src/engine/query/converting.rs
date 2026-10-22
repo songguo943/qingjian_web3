@@ -167,6 +167,17 @@ impl Engine {
                 }
             }
         }
+        // 用户为这段输入选过一个正好拼成整段的词（`youshuo` 选过 又说）：整句不压在它前面，让给用户的选择
+        if behind_spelled.is_none() && self.adaptive_learning {
+            let letters = best.joined("");
+            if items.iter().any(|c| {
+                c.kind == CandidateKind::Chinese
+                    && c.syllables.concat() == letters
+                    && self.learner.choice_weight(&letters, &c.text) > 0
+            }) {
+                behind_spelled = Some(letters);
+            }
+        }
         let mut out: Vec<Candidate> = Vec::new();
         for (rank, conversion) in paths.into_iter().enumerate() {
             if out.len() >= wanted {

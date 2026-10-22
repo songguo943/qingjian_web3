@@ -607,3 +607,71 @@ fn adaptive_learning_defaults_on_and_can_be_switched() {
     engine.set_adaptive_learning(true);
     assert!(engine.adaptive_learning());
 }
+
+/// `youshuo` 下 又说 选过 `chosen` 次的桩。
+struct SpokenLearner {
+    chosen: u32,
+}
+
+impl Learner for SpokenLearner {
+    fn record(&mut self, _candidate: &Candidate) {}
+
+    fn weight(&self, _text: &str) -> u32 {
+        0
+    }
+
+    fn choice_weight(&self, input: &str, text: &str) -> u32 {
+        if input == "youshuo" && text == "又说" {
+            self.chosen
+        } else {
+            0
+        }
+    }
+}
+
+const YOUSHUO: &str = "有\tyou\t100000\n说\tshuo\t100000\n又说\tyou shuo\t100\n";
+
+fn youshuo(chosen: u32) -> Vec<(String, CandidateKind)> {
+    let mut engine = Engine::new(Dictionary::parse(YOUSHUO).unwrap())
+        .with_learner(Box::new(SpokenLearner { chosen }));
+    engine.set_input("youshuo");
+    engine
+        .query()
+        .unwrap()
+        .candidates
+        .items
+        .into_iter()
+        .map(|c| (c.text, c.kind))
+        .collect()
+}
+
+#[test]
+fn sentence_stays_first_when_the_word_was_never_chosen() {
+    let items = youshuo(0);
+    assert_eq!(
+        items[0],
+        ("有说".to_owned(), CandidateKind::Sentence),
+        "{items:?}"
+    );
+}
+
+#[test]
+fn sentence_yields_to_a_word_the_user_has_chosen() {
+    let items = youshuo(4);
+    assert_eq!(items[0].0, "又说", "{items:?}");
+    assert_eq!(
+        items[1],
+        ("有说".to_owned(), CandidateKind::Sentence),
+        "{items:?}"
+    );
+}
+
+#[test]
+fn sentence_yields_only_when_adaptive_is_on() {
+    let mut engine = Engine::new(Dictionary::parse(YOUSHUO).unwrap())
+        .with_learner(Box::new(SpokenLearner { chosen: 4 }));
+    engine.set_adaptive_learning(false);
+    engine.set_input("youshuo");
+    let items = engine.query().unwrap().candidates.items;
+    assert_eq!(items[0].kind, CandidateKind::Sentence, "{items:?}");
+}
