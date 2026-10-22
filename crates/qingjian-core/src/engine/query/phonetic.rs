@@ -260,6 +260,7 @@ impl Engine {
             self.insert_shortcuts(&mut items, keys);
             self.insert_emoji(&mut items);
             self.insert_keyword_shortcuts(&mut items);
+            self.demote_unchosen_extras(&mut items);
         }
         let rank = start.elapsed();
 

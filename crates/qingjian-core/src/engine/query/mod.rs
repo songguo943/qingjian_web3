@@ -4,6 +4,7 @@ use super::*;
 
 mod code;
 mod converting;
+mod demote;
 mod english_tail;
 mod generating;
 mod lookup;

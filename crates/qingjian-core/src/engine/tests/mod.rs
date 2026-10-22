@@ -8,6 +8,7 @@ mod code;
 mod code_keys;
 mod correction;
 mod custom;
+mod demote;
 mod email;
 mod emoji;
 mod english;
