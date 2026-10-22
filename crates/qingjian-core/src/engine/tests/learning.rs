@@ -805,3 +805,91 @@ fn private_input_records_no_extra_choices() {
     assert_eq!(engine.learner().choice_weight("smile", "smile"), 0);
     assert_eq!(engine.learner().choice_weight("smile", "😀"), 0);
 }
+
+/// 选择次数与短期权重都由测试给定的桩：`you` 下 有 选过 150 次、又 选过 39 次。
+struct PreferenceLearner {
+    youlearned: bool,
+}
+
+impl PreferenceLearner {
+    fn stats(&self, text: &str) -> ChoiceStats {
+        match (text, self.youlearned) {
+            ("有", _) => ChoiceStats {
+                count: 150,
+                recent: if self.youlearned { 1.2 } else { 0.0 },
+                fresh: 0,
+            },
+            ("又", _) => ChoiceStats {
+                count: 39,
+                recent: if self.youlearned { 8.0 } else { 0.0 },
+                fresh: 0,
+            },
+            _ => ChoiceStats::default(),
+        }
+    }
+}
+
+impl Learner for PreferenceLearner {
+    fn record(&mut self, _candidate: &Candidate) {}
+
+    fn weight(&self, _text: &str) -> u32 {
+        0
+    }
+
+    fn choice_weight(&self, input: &str, text: &str) -> u32 {
+        if input == "you" {
+            self.stats(text).count
+        } else {
+            0
+        }
+    }
+
+    fn choice_stats(&self, input: &str, text: &str) -> ChoiceStats {
+        if input == "you" {
+            self.stats(text)
+        } else {
+            ChoiceStats::default()
+        }
+    }
+}
+
+/// 又 的词库先验比 有 高，但选择次数 39 对 150 不到一半，在竞争圈外：次数硬优先，有 永远第一。
+fn you_engine(recent_selections: bool) -> Engine {
+    let dictionary = Dictionary::parse("有\tyou\t20000\n又\tyou\t100000\n").unwrap();
+    Engine::new(dictionary).with_learner(Box::new(PreferenceLearner {
+        youlearned: recent_selections,
+    }))
+}
+
+fn first_chinese(engine: &mut Engine) -> String {
+    engine.set_input("you");
+    engine
+        .query()
+        .unwrap()
+        .candidates
+        .items
+        .into_iter()
+        .find(|c| c.kind == CandidateKind::Chinese)
+        .unwrap()
+        .text
+}
+
+#[test]
+fn recent_selections_lift_a_word_in_ranking() {
+    // 又 最近连着选了 8 次（短期权重 8.0）：折算后 39 + 10 × 8 = 119，不少于 有 的 150 + 10 × 1.2 = 162 的一半，进圈，先验高的 又 排第一
+    let mut engine = you_engine(true);
+    assert_eq!(first_chinese(&mut engine), "又");
+}
+
+#[test]
+fn stats_without_recency_rank_exactly_as_before() {
+    let mut engine = you_engine(false);
+    assert_eq!(first_chinese(&mut engine), "有");
+}
+
+#[test]
+fn adaptive_off_ignores_recency() {
+    let mut engine = you_engine(true);
+    engine.set_adaptive_learning(false);
+    assert_eq!(first_chinese(&mut engine), "有");
+}

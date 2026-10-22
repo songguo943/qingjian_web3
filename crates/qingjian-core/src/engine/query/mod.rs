@@ -19,6 +19,20 @@ pub(super) use result::join_marked;
 pub(super) use snapshot::QuerySnapshot;
 
 impl Engine {
+    /// 排序用的选择次数：自适应学习开着时，长期次数再加上短期权重折算的份额（[`ranking::RECENT_WEIGHT_BETA`]），
+    /// 最近连着选的词因此更容易进竞争圈；关着、或这个词没有短期权重时就是 `choice_weight`，与升级前逐项一样。
+    pub(in crate::engine) fn preference_choice(&self, input: &str, text: &str) -> u32 {
+        let count = self.learner.choice_weight(input, text);
+        if !self.adaptive_learning {
+            return count;
+        }
+        let recent = self.learner.choice_stats(input, text).recent;
+        if recent <= 0.0 {
+            return count;
+        }
+        count.saturating_add((ranking::RECENT_WEIGHT_BETA * f64::from(recent)).round() as u32)
+    }
+
     /// 解析当前缓冲区并生成排好序的候选。**不带译文**，译文由 [`Self::annotate`] 补。
     ///
     /// 光标停在拼音中间时只按光标前的那段算候选（`ni|hao` 出 你），光标后的拼音留着，

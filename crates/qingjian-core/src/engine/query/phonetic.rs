@@ -177,7 +177,7 @@ impl Engine {
                 .map_or(item.coverage, |c| c.edit.to_original(item.coverage));
             let choice = letters
                 .get(..covered)
-                .map_or(0, |input| self.learner.choice_weight(input, hit.text));
+                .map_or(0, |input| self.preference_choice(input, hit.text));
             (choice, self.word_log_prob(hit, log_total))
         });
         // 辅码态：词库候选按码段**反向**过滤（逐个问「有没有以码段开头的码」），无码词直接隐藏；
