@@ -357,6 +357,49 @@ fn data_lines(source: &str) -> impl Iterator<Item = &str> {
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
 }
 
+/// 解析 `输入串\t词\t次数[\tdee\ttick\tfresh]` 一行：老文件只有前三列，缺的后三列按 `dee = 0`、`tick = 0`、`fresh = 0`；
+/// 有的列必须能解析（`dee` 是有限的非负小数，`tick`、`fresh` 是非负整数），否则整行当坏行。
+fn parse_choice_row(line: &str) -> Option<(&str, &str, ChoiceEntry)> {
+    let (input, text, count) = parse_counted_pair(line)?;
+    let mut extra = line.split('\t').skip(3);
+    let dee = match extra.next() {
+        Some(field) => {
+            let dee = field.trim().parse::<f32>().ok()?;
+            if !dee.is_finite() || dee < 0.0 {
+                return None;
+            }
+            dee
+        }
+        None => 0.0,
+    };
+    let tick = match extra.next() {
+        Some(field) => field.trim().parse::<u64>().ok()?,
+        None => 0,
+    };
+    let fresh = match extra.next() {
+        Some(field) => field.trim().parse::<u32>().ok()?,
+        None => 0,
+    };
+    Some((
+        input,
+        text,
+        ChoiceEntry {
+            count,
+            dee,
+            tick,
+            fresh,
+        },
+    ))
+}
+
+/// 文件头 `# 偏好时钟\t<N>` 里记的全局提交时钟；没有（老文件）或写坏了返回 `None`。
+fn parse_choice_clock(source: &str) -> Option<u64> {
+    source
+        .lines()
+        .find_map(|line| line.strip_prefix("# 偏好时钟\t"))
+        .and_then(|value| value.trim().parse().ok())
+}
+
 /// 解析 `甲\t乙\t次数` 一行，格式不对返回 `None`。
 fn parse_counted_pair(line: &str) -> Option<(&str, &str, u32)> {
     let mut fields = line.split('\t');

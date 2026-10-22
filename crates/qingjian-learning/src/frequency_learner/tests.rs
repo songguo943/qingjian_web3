@@ -541,3 +541,95 @@ fn input_evidence_ignores_raw_and_reading_keys() {
     let stats = learner.choice_stats("wode", "我的");
     assert_eq!((stats.count, stats.fresh), (1, 0));
 }
+
+#[test]
+fn old_three_column_file_loads_with_no_recency() {
+    let mut learner = FrequencyLearner::default();
+    let skipped =
+        learner.load_choices("# 青简按输入串记的选择：输入串\t词\t次数\nba\t吧\t84\nba\t把\t121\n");
+    assert_eq!(skipped, 0);
+    assert_eq!(
+        learner.choice_stats("ba", "吧"),
+        qingjian_core::ChoiceStats {
+            count: 84,
+            recent: 0.0,
+            fresh: 0
+        }
+    );
+    assert_eq!(learner.choice_weight("ba", "把"), 121);
+    // 老数据没有「自启用以来」的次数，所以升级当天没有任何输入串有证据
+    assert_eq!(learner.input_evidence("ba"), 0);
+}
+
+#[test]
+fn new_file_round_trips_and_old_parser_still_reads_it() {
+    let dir = std::env::temp_dir().join("qingjian-user-choices-pref-test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("user.tsv");
+    let _ = std::fs::remove_file(dir.join(USER_CHOICES_FILE));
+
+    let mut learner = FrequencyLearner::from_path(&path).unwrap();
+    for _ in 0..3 {
+        learner.record_choice("you", "", "又");
+    }
+    learner.record_choice("you", "", "有");
+    let before = learner.choice_stats("you", "又");
+    learner.flush();
+
+    let text = std::fs::read_to_string(dir.join(USER_CHOICES_FILE)).unwrap();
+    // 旧版本的解析只取前三列、跳过 `#` 行：每个数据行都能被旧解析读出同样的次数
+    for line in data_lines(&text) {
+        let (input, word, count) = parse_counted_pair(line).expect("旧解析读不了新格式");
+        assert_eq!(input, "you");
+        assert_eq!(count, if word == "又" { 3 } else { 1 });
+    }
+    assert!(text.contains("# 偏好时钟\t4"), "文件头应记全局时钟：{text}");
+
+    let mut reloaded = FrequencyLearner::from_path(&path).unwrap();
+    let after = reloaded.choice_stats("you", "又");
+    assert_eq!((after.count, after.fresh), (before.count, before.fresh));
+    assert!((after.recent - before.recent).abs() < 1e-3);
+    assert_eq!(reloaded.input_evidence("you"), 4);
+    // 时钟接着走：再记一次别的词，「又」的权重按多走一格衰减
+    reloaded.record_choice("you", "", "由");
+    let later = reloaded.choice_stats("you", "又").recent;
+    assert!((later - before.recent * (-1.0_f32 / 200.0).exp()).abs() < 1e-3);
+}
+
+#[test]
+fn bad_rows_are_skipped_not_fatal() {
+    let mut learner = FrequencyLearner::default();
+    let source = "ok\t好\t2\t1.5\t7\t1\n\
+                  missing\t列\n\
+                  dee\t坏\t3\tabc\t0\t0\n\
+                  negative\t数\t-1\n\
+                  tick\t坏\t2\t1.0\tx\t0\n\
+                  fresh\t坏\t2\t1.0\t5\t-1\n\
+                  nan\t坏\t1\tNaN\t0\t0\n";
+    assert_eq!(learner.load_choices(source), 6);
+    assert_eq!(learner.choice_count(), 1);
+    assert_eq!(learner.choice_weight("ok", "好"), 2);
+    assert_eq!(learner.load_choices(""), 0);
+}
+
+#[test]
+fn tick_beyond_clock_is_treated_as_zero_age() {
+    let mut learner = FrequencyLearner::default();
+    // 文件被手改过：条目的 tick 比头部时钟（10）大
+    assert_eq!(
+        learner.load_choices("# 偏好时钟\t10\nx\ty\t2\t3.5\t999999\t1\n"),
+        0
+    );
+    let recent = learner.choice_stats("x", "y").recent;
+    assert!(
+        recent.is_finite() && (recent - 3.5).abs() < 1e-6,
+        "{recent}"
+    );
+    // 时钟被抬到 tick：再记一次别的，x 的权重只多衰减一格，而不是被吞掉或变成无穷
+    learner.record_choice("z", "", "他");
+    let later = learner.choice_stats("x", "y").recent;
+    assert!(
+        (later - 3.5 * (-1.0_f32 / 200.0).exp()).abs() < 1e-4,
+        "{later}"
+    );
+}

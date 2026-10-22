@@ -116,46 +116,52 @@ impl FrequencyLearner {
         frequency_path.with_file_name(USER_CHOICES_FILE)
     }
 
-    /// 从 `输入串\t词\t次数` 读按输入串记的选择，返回跳过的坏行数。
+    /// 从 `输入串\t词\t次数[\tdee\ttick\tfresh]` 读按输入串记的选择，返回跳过的坏行数。
+    /// 全局时钟取文件头记的值，再抬到不小于任何条目的 `tick`（文件被手改过时，保证权重不被吞、不出无穷）。
     pub(super) fn load_choices(&mut self, source: &str) -> usize {
         let mut skipped = 0;
+        let mut clock = parse_choice_clock(source).unwrap_or(0);
         for line in data_lines(source) {
-            let Some((input, text, count)) = parse_counted_pair(line) else {
+            let Some((input, text, entry)) = parse_choice_row(line) else {
                 skipped += 1;
                 continue;
             };
-            if count > 0 {
-                self.choices.entry(input.to_owned()).or_default().insert(
-                    text.to_owned(),
-                    ChoiceEntry {
-                        count,
-                        ..ChoiceEntry::default()
-                    },
-                );
+            if entry.count > 0 {
+                clock = clock.max(entry.tick);
+                self.choices
+                    .entry(input.to_owned())
+                    .or_default()
+                    .insert(text.to_owned(), entry);
             }
         }
+        self.clock = self.clock.max(clock);
         skipped
     }
 
     pub(super) fn save_choices_to(&mut self, path: &Path) -> Result<(), LearningError> {
-        let mut rows: Vec<(&String, &String, &u32)> = self
+        let mut rows: Vec<(&String, &String, &ChoiceEntry)> = self
             .choices
             .iter()
-            .flat_map(|(input, texts)| {
-                texts
-                    .iter()
-                    .map(move |(text, entry)| (input, text, &entry.count))
-            })
+            .flat_map(|(input, texts)| texts.iter().map(move |(text, entry)| (input, text, entry)))
             .collect();
         rows.sort_by(|a, b| {
             a.0.cmp(b.0)
-                .then_with(|| b.2.cmp(a.2))
+                .then_with(|| b.2.count.cmp(&a.2.count))
                 .then_with(|| a.1.cmp(b.1))
         });
+        let clock = self.clock;
         write_atomic(path, |file| {
-            writeln!(file, "# 青简按输入串记的选择：输入串\t词\t次数")?;
-            for (input, text, count) in rows {
-                writeln!(file, "{input}\t{text}\t{count}")?;
+            writeln!(
+                file,
+                "# 青简按输入串记的选择：输入串\t词\t次数\tdee\ttick\tfresh（后三列是偏好模型，旧版本只读前三列）"
+            )?;
+            writeln!(file, "# 偏好时钟\t{clock}")?;
+            for (input, text, entry) in rows {
+                writeln!(
+                    file,
+                    "{input}\t{text}\t{}\t{:.4}\t{}\t{}",
+                    entry.count, entry.dee, entry.tick, entry.fresh
+                )?;
             }
             Ok(())
         })?;
