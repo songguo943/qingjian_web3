@@ -320,3 +320,17 @@ fn manual_prediction_shortcut_round_trips() {
         config
     );
 }
+
+#[test]
+fn adaptive_learning_defaults_to_true_and_parses() {
+    let adaptive = |source: &str| {
+        toml::from_str::<Config>(source)
+            .unwrap()
+            .general
+            .adaptive_learning
+    };
+    assert!(Config::default().general.adaptive_learning);
+    assert!(adaptive(""));
+    assert!(adaptive("[general]\nadaptive_learning = true\n"));
+    assert!(!adaptive("[general]\nadaptive_learning = false\n"));
+}

@@ -115,6 +115,10 @@ pub struct Args {
     #[arg(long)]
     pub strict_match: bool,
 
+    /// 关掉自适应学习（配置 [general] adaptive_learning = false）：回放时对比开 / 关两种口径用
+    #[arg(long)]
+    pub no_adaptive: bool,
+
     /// 双拼方案（xiaohe / ziranma / microsoft / sogou / abc / xiaolang / shoudao / jiajia / ziguang，或用户双拼方案的目录），覆盖配置里的 `[general]` scheme；off 强制全拼
     #[arg(long)]
     pub shuangpin: Option<String>,

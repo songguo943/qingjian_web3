@@ -537,6 +537,16 @@ impl Engine {
         self.strict_match
     }
 
+    /// 自适应学习（配置 `[general] adaptive_learning`，缺省开）：词排序按最近的选择加权、没选过的英文词 / emoji 往后挪、
+    /// 整句让位给选过的词。关掉时三处全退回现状，选择记录照常进行。
+    pub fn set_adaptive_learning(&mut self, on: bool) {
+        self.adaptive_learning = on;
+    }
+
+    pub fn adaptive_learning(&self) -> bool {
+        self.adaptive_learning
+    }
+
     /// 中英混输里中文候选是否总排在英文词前面（配置 `[general] chinese_first`，缺省关）。
     /// 关着时拼音「不像话」的输入英文词排第一（`hello` 先英文再 荷兰咯）；开了英文词固定第二。
     pub fn set_chinese_first(&mut self, on: bool) {

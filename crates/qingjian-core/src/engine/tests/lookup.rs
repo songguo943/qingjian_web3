@@ -597,3 +597,13 @@ fn strict_match_keeps_prefix_words_while_the_input_is_unfinished() {
         .collect();
     assert!(texts.contains(&"我想".to_owned()), "{texts:?}");
 }
+
+#[test]
+fn adaptive_learning_defaults_on_and_can_be_switched() {
+    let mut engine = engine();
+    assert!(engine.adaptive_learning());
+    engine.set_adaptive_learning(false);
+    assert!(!engine.adaptive_learning());
+    engine.set_adaptive_learning(true);
+    assert!(engine.adaptive_learning());
+}

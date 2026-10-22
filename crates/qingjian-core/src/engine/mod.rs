@@ -141,6 +141,10 @@ pub struct Engine {
     /// 严格匹配（配置 `[general] strict_match`，缺省关）：整段输入已能按完整音节读完时，不再收备选切分的前缀词（`yiban` 不出 一边 / 一把）。
     strict_match: bool,
 
+    /// 自适应学习（配置 `[general] adaptive_learning`，缺省开）：词排序按最近的选择加权、没选过的英文词 / emoji 往后挪、整句让位给选过的词。
+    /// 关掉时三处全退回现状；选择记录照常进行，重新打开时有数据可用。
+    adaptive_learning: bool,
+
     /// 中英混输时中文候选总在英文词前面（缺省关：拼音不像话的输入英文词排第一，常在中文模式里打英文词的人靠它）。
     chinese_first: bool,
 
@@ -511,6 +515,7 @@ impl Engine {
             custom_phrases: Vec::new(),
             english_in_chinese: true,
             strict_match: false,
+            adaptive_learning: true,
             chinese_first: false,
             english_max_in_chinese: ENGLISH_CANDIDATES_MAX,
             english_min_position: 1,
