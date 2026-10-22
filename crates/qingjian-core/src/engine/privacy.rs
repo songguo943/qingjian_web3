@@ -51,6 +51,20 @@ impl Engine {
         }
     }
 
+    /// 英文词的「选择」记录（「没选过就往后挪」的判断靠它）：与 [`Self::note_english_commit`] 同一道闸——
+    /// 命中 BIP-39 表的词先攒着，连击断了再记，连成助记词就整串丢掉，前几个词的选择也不会落盘。
+    /// 要在 `note_english_commit` 之后调：连击刚到阈值时 `private` 已经为真，这个词就不攒了。
+    pub(in crate::engine) fn record_english_choice(&mut self, key: &str, word: &str) {
+        let word = word.to_ascii_lowercase();
+        if mnemonic::is_bip39_word(&word) {
+            if !self.private {
+                self.bip39_pending_choices.push((key.to_owned(), word));
+            }
+            return;
+        }
+        self.learner.record_choice(key, "", &word);
+    }
+
     /// 上屏了跟「学英文词」无关的东西（中文词、形码、emoji、纯标点……）或没命中表的词：连续命中数清零，
     /// 启发式私密也一并撤（如果是壳声明的私密，`system_private` 还在，`private` 不会被这句话动到），
     /// 攒着的词照常学进去（此时若仍是私密，学习器静音，等于丢掉）。
@@ -59,6 +73,9 @@ impl Engine {
         self.set_private_from(PrivacySource::Heuristic, false);
         for word in std::mem::take(&mut self.bip39_pending) {
             self.learner.learn_english(&word);
+        }
+        for (key, word) in std::mem::take(&mut self.bip39_pending_choices) {
+            self.learner.record_choice(&key, "", &word);
         }
     }
 
@@ -77,6 +94,7 @@ impl Engine {
         if combined {
             // 攒着的词丢掉：离开私密后才断连击的话，它们不该被冲进个人词库
             self.bip39_pending.clear();
+            self.bip39_pending_choices.clear();
             // 在飞的云结果不能再显示，前文也不能留
             self.cancel_prediction();
             self.rescoring_before = None;

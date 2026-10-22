@@ -235,6 +235,9 @@ pub struct Engine {
     /// 所以前几个词也不会落盘。进了私密输入（密码框 / 已判定是助记词）时清空，私密期间不攒。
     bip39_pending: Vec<String>,
 
+    /// 同 `bip39_pending`，攒着的英文词「选择」记录：（输入串键，小写词）。
+    bip39_pending_choices: Vec<(String, String)>,
+
     /// 输入日志条目的序号。
     log_sequence: u64,
 
@@ -550,6 +553,7 @@ impl Engine {
             heuristic_private: false,
             bip39_streak: 0,
             bip39_pending: Vec::new(),
+            bip39_pending_choices: Vec::new(),
             log_sequence: 0,
             last_rescored: std::cell::Cell::new(false),
             last_choice: std::cell::Cell::new(None),

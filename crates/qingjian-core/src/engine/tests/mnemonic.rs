@@ -211,3 +211,98 @@ fn heuristic_private_never_overrides_a_password_field_declared_by_the_shell() {
     engine.set_private(false);
     assert!(!engine.is_private());
 }
+
+/// 记下 `record_choice` 调用的桩：整串助记词不该有一个词落进选择表。
+#[derive(Default)]
+struct ChoiceSpy {
+    choices: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
+}
+
+impl Learner for ChoiceSpy {
+    fn record(&mut self, _candidate: &Candidate) {}
+    fn weight(&self, _text: &str) -> u32 {
+        0
+    }
+    fn record_choice(&mut self, input: &str, _reading: &str, text: &str) {
+        self.choices
+            .lock()
+            .unwrap()
+            .push((input.to_owned(), text.to_owned()));
+    }
+}
+
+fn spy_engine() -> (
+    Engine,
+    std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
+) {
+    let spy = ChoiceSpy::default();
+    let log = spy.choices.clone();
+    let engine = Engine::new(Dictionary::parse(SAMPLE).unwrap()).with_learner(Box::new(spy));
+    (engine, log)
+}
+
+#[test]
+fn a_completed_streak_leaves_no_bip39_word_in_the_choice_table() {
+    let (mut engine, log) = spy_engine();
+    for word in STREAK_WORDS {
+        commit_raw(&mut engine, word);
+    }
+    assert!(engine.is_private());
+    commit_raw(&mut engine, "gist");
+    let recorded: Vec<String> = log.lock().unwrap().iter().map(|(_, t)| t.clone()).collect();
+    assert!(
+        recorded.iter().all(|t| !STREAK_WORDS.contains(&t.as_str())),
+        "助记词不该写进选择表：{recorded:?}"
+    );
+}
+
+#[test]
+fn held_back_bip39_choices_are_recorded_when_the_streak_breaks() {
+    let (mut engine, log) = spy_engine();
+    for word in &STREAK_WORDS[..5] {
+        commit_raw(&mut engine, word);
+    }
+    assert!(log.lock().unwrap().is_empty(), "连击没断前先攒着，不记");
+    commit_raw(&mut engine, "gist");
+    let recorded: Vec<String> = log.lock().unwrap().iter().map(|(_, t)| t.clone()).collect();
+    assert_eq!(
+        recorded.len(),
+        6,
+        "断了之后 5 个攒着的 + gist 照常记：{recorded:?}"
+    );
+}
+
+#[test]
+fn a_retracted_held_back_choice_is_not_recorded_when_the_streak_breaks() {
+    // smoke / smooth 都在 BIP-39 表里：选了 smoke 又退格改选 smooth，smoke 的选择还攒着、该一并撤掉
+    let words = WordList::parse("smoke\nsmooth\n").unwrap();
+    let spy = ChoiceSpy::default();
+    let log = spy.choices.clone();
+    let mut engine = Engine::new(Dictionary::parse(SAMPLE).unwrap())
+        .with_english(words)
+        .with_learner(Box::new(spy));
+    let pick = |engine: &mut Engine, text: &str| {
+        engine.set_input("smo");
+        let candidate = engine
+            .query()
+            .unwrap()
+            .candidates
+            .items
+            .into_iter()
+            .find(|c| c.text == text)
+            .unwrap_or_else(|| panic!("候选里没有 {text}"));
+        engine.commit(&candidate);
+    };
+    pick(&mut engine, "smoke");
+    for _ in 0.."smoke".len() {
+        engine.note_backspace();
+    }
+    pick(&mut engine, "smooth");
+    commit_raw(&mut engine, "gist");
+    let recorded: Vec<String> = log.lock().unwrap().iter().map(|(_, t)| t.clone()).collect();
+    assert!(
+        !recorded.contains(&"smoke".to_owned()),
+        "撤销过的选择不该落盘：{recorded:?}"
+    );
+    assert!(recorded.contains(&"smooth".to_owned()), "{recorded:?}");
+}

@@ -200,7 +200,12 @@ impl Engine {
             _ => None,
         };
         if let Some(text) = &extra_choice {
-            self.learner.record_choice(&input, "", text);
+            if candidate.kind == CandidateKind::English {
+                // 英文词与「学英文词」同一道 BIP-39 闸
+                self.record_english_choice(&input, text);
+            } else {
+                self.learner.record_choice(&input, "", text);
+            }
         }
         // BIP-39 连续命中计数：上面几条路里只有「英文候选」和「句末英文词」会经 `note_english_commit`
         // 累计命中；其余候选（中文、形码、云端词、emoji、快捷 / 自定义候选，或者句末不是英文词的整句）
@@ -462,8 +467,19 @@ impl Engine {
             self.learner.unrecord(chosen);
         }
         if let Some(choice) = &last.choice {
-            self.learner
-                .unrecord_choice(&last.input, &choice.reading, &choice.text);
+            // 还攒着没记的英文词选择（助记词闸）：从攒着的里去掉，不然连击断了会把撤销过的记进去
+            match self
+                .bip39_pending_choices
+                .iter()
+                .rposition(|(key, word)| *key == last.input && *word == choice.text)
+            {
+                Some(held) => {
+                    self.bip39_pending_choices.remove(held);
+                }
+                None => self
+                    .learner
+                    .unrecord_choice(&last.input, &choice.reading, &choice.text),
+            }
         }
         for transition in &last.transitions {
             self.learner.unrecord_transition(

@@ -405,8 +405,7 @@ impl Engine {
             self.note_english_commit(&raw);
             // 回车原样上屏一个英文词，算选中了这个英文候选（键小写，与英文候选上屏一致）：
             // 否则正在学的英文词在「没选过就往后挪」的判断里会被当成没选过
-            self.learner
-                .record_choice(&scope, "", &raw.to_ascii_lowercase());
+            self.record_english_choice(&scope, &raw);
         } else {
             self.reset_bip39_streak();
         }
