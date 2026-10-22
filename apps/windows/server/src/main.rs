@@ -236,6 +236,7 @@ fn main() {
     engine.set_english_max_in_chinese(config.general.english_max_in_chinese());
     engine.set_english_min_position(config.general.english_min_position());
     engine.set_strict_match(config.general.strict_match);
+    engine.set_adaptive_learning(config.general.adaptive_learning);
     engine.set_shift_letter_compose(config.general.shift_letter.compose());
     engine.set_auto_space(config.general.auto_space);
     engine.set_shuangpin_raw_preedit(config.general.shuangpin_raw_preedit);

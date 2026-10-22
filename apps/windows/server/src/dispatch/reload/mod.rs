@@ -255,6 +255,8 @@ impl Router {
         self.engine
             .set_english_min_position(config.general.english_min_position());
         self.engine
+            .set_adaptive_learning(config.general.adaptive_learning);
+        self.engine
             .set_shift_letter_compose(config.general.shift_letter.compose());
         self.engine.set_auto_space(config.general.auto_space);
         self.engine

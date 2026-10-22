@@ -146,6 +146,15 @@ pub fn candidates(ui: &mut Ui<Message>, page: &Page) -> Result<Vec<NodeId>, Rend
         toggle_info(
             ui,
             page,
+            "自适应学习",
+            Some("按最近的选择调整排序，并把你从没选过的英文词和 emoji 往后排"),
+            ("general", "adaptive_learning"),
+            general.adaptive_learning,
+            false,
+        )?,
+        toggle_info(
+            ui,
+            page,
             "本地整句模型",
             Some("在本机排整句，不联网"),
             ("model", "enabled"),
