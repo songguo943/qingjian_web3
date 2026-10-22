@@ -608,9 +608,10 @@ fn adaptive_learning_defaults_on_and_can_be_switched() {
     assert!(engine.adaptive_learning());
 }
 
-/// `youshuo` 下 又说 选过 `chosen` 次的桩。
+/// `youshuo` 下 又说 选过 `chosen` 次的桩；`fresh` 是其中自启用自适应学习以来的次数。
 struct SpokenLearner {
     chosen: u32,
+    fresh: u32,
 }
 
 impl Learner for SpokenLearner {
@@ -627,13 +628,25 @@ impl Learner for SpokenLearner {
             0
         }
     }
+
+    fn choice_stats(&self, input: &str, text: &str) -> ChoiceStats {
+        if input == "youshuo" && text == "又说" {
+            ChoiceStats {
+                count: self.chosen,
+                recent: 0.0,
+                fresh: self.fresh,
+            }
+        } else {
+            ChoiceStats::default()
+        }
+    }
 }
 
 const YOUSHUO: &str = "有\tyou\t100000\n说\tshuo\t100000\n又说\tyou shuo\t100\n";
 
-fn youshuo(chosen: u32) -> Vec<(String, CandidateKind)> {
+fn youshuo(chosen: u32, fresh: u32) -> Vec<(String, CandidateKind)> {
     let mut engine = Engine::new(Dictionary::parse(YOUSHUO).unwrap())
-        .with_learner(Box::new(SpokenLearner { chosen }));
+        .with_learner(Box::new(SpokenLearner { chosen, fresh }));
     engine.set_input("youshuo");
     engine
         .query()
@@ -647,7 +660,7 @@ fn youshuo(chosen: u32) -> Vec<(String, CandidateKind)> {
 
 #[test]
 fn sentence_stays_first_when_the_word_was_never_chosen() {
-    let items = youshuo(0);
+    let items = youshuo(0, 0);
     assert_eq!(
         items[0],
         ("有说".to_owned(), CandidateKind::Sentence),
@@ -657,7 +670,7 @@ fn sentence_stays_first_when_the_word_was_never_chosen() {
 
 #[test]
 fn sentence_yields_to_a_word_the_user_has_chosen() {
-    let items = youshuo(4);
+    let items = youshuo(4, 4);
     assert_eq!(items[0].0, "又说", "{items:?}");
     assert_eq!(
         items[1],
@@ -668,10 +681,24 @@ fn sentence_yields_to_a_word_the_user_has_chosen() {
 
 #[test]
 fn sentence_yields_only_when_adaptive_is_on() {
-    let mut engine = Engine::new(Dictionary::parse(YOUSHUO).unwrap())
-        .with_learner(Box::new(SpokenLearner { chosen: 4 }));
+    let mut engine =
+        Engine::new(Dictionary::parse(YOUSHUO).unwrap()).with_learner(Box::new(SpokenLearner {
+            chosen: 4,
+            fresh: 4,
+        }));
     engine.set_adaptive_learning(false);
     engine.set_input("youshuo");
     let items = engine.query().unwrap().candidates.items;
     assert_eq!(items[0].kind, CandidateKind::Sentence, "{items:?}");
+}
+
+#[test]
+fn sentence_stays_first_for_a_word_chosen_only_before_adaptive_learning() {
+    // 升级前选过 4 次（count 有、fresh 没有）：升级当天候选顺序不变，整句还在最前面
+    let items = youshuo(4, 0);
+    assert_eq!(
+        items[0],
+        ("有说".to_owned(), CandidateKind::Sentence),
+        "{items:?}"
+    );
 }

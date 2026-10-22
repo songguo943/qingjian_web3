@@ -348,7 +348,7 @@ impl Engine {
             LastCommit {
                 // 文本是学习键，记简体；字符数按真正上屏的那份算，退格撤销数的是屏幕上的字
                 text: candidate.text.clone(),
-                chars: text.chars().count(),
+                chars: screen_chars(&text),
                 tail: text.chars().last(),
                 input,
                 chosen: matches!(
@@ -793,6 +793,42 @@ impl Engine {
         };
         self.all_dictionaries().into_iter().any(known)
     }
+}
+
+/// 一段文字在屏幕上占几个「字」：退格一次删掉一个字素簇，撤销按这个数。
+/// 汉字、字母一个码位一个字；emoji 一个字可以是好几个码位——带 VS16 的符号、ZWJ 连起来的家庭、肤色、
+/// 键帽、标签序列，国旗是两个区域指示符一个字。按这几类码位折算，不引字素簇的依赖。
+pub(in crate::engine) fn screen_chars(text: &str) -> usize {
+    let mut count = 0;
+    let mut after_joiner = false;
+    let mut pending_flag = false;
+    for c in text.chars() {
+        let joiner = c == '\u{200d}';
+        let extender = matches!(
+            c,
+            '\u{fe0e}' | '\u{fe0f}' | '\u{20e3}' | '\u{1f3fb}'..='\u{1f3ff}' | '\u{e0020}'..='\u{e007f}'
+        );
+        if joiner || extender {
+            after_joiner = joiner;
+            continue;
+        }
+        if after_joiner {
+            // ZWJ 后面的码位并进前一个字
+            after_joiner = false;
+            continue;
+        }
+        if matches!(c, '\u{1f1e6}'..='\u{1f1ff}') {
+            // 区域指示符两个一组是一面国旗
+            pending_flag = !pending_flag;
+            if !pending_flag {
+                continue;
+            }
+        } else {
+            pending_flag = false;
+        }
+        count += 1;
+    }
+    count
 }
 
 /// 整句路径上的词是英文词（`woxiangxuehaorust` 的 rust）：不是占位音节、全是字母。

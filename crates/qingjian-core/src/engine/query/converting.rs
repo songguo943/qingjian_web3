@@ -167,14 +167,15 @@ impl Engine {
                 }
             }
         }
-        // 用户为这段输入选过一个正好拼成整段的词（`youshuo` 选过 又说）：整句不压在它前面，让给用户的选择。
+        // 用户启用自适应学习以来为这段输入选过一个正好拼成整段的词（`youshuo` 选过 又说）：整句不压在它前面，
+        // 让给用户的选择。只认「自启用以来」的选择（`fresh`），升级当天老数据里的次数不改变候选顺序。
         // 整句上屏不按「输入串 → 整句文本」记选择次数，没有可比的另一边，所以选过一次就让
         if behind_spelled.is_none() && self.adaptive_learning {
             let letters = best.joined("");
             if items.iter().any(|c| {
                 c.kind == CandidateKind::Chinese
                     && c.syllables.concat() == letters
-                    && self.learner.choice_weight(&letters, &c.text) > 0
+                    && self.learner.choice_stats(&letters, &c.text).fresh > 0
             }) {
                 behind_spelled = Some(letters);
             }

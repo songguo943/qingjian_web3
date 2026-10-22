@@ -893,3 +893,35 @@ fn adaptive_off_ignores_recency() {
     engine.set_adaptive_learning(false);
     assert_eq!(first_chinese(&mut engine), "有");
 }
+
+#[test]
+fn multi_codepoint_emoji_undo_with_one_backspace() {
+    // 屏幕上一个字：带 VS16 的心、ZWJ 家庭、肤色手势、国旗；退格一次删掉整个，不是按码位数
+    let table = EmojiTable::parse("python\t❤️ 👍🏽\n").unwrap();
+    let mut engine = engine()
+        .with_english(WordList::parse("python\npythons\n").unwrap())
+        .with_emoji(table)
+        .with_learner(Box::new(CountingLearner(HashMap::new())));
+    pick_kind(&mut engine, "python", "❤️", CandidateKind::Emoji);
+    assert_eq!(engine.learner().choice_weight("python", "❤️"), 1);
+    engine.note_backspace();
+    pick_kind(&mut engine, "python", "pythons", CandidateKind::English);
+    assert_eq!(
+        engine.learner().choice_weight("python", "❤️"),
+        0,
+        "一次退格就删掉了整个 emoji，上屏它的那次选择该撤销"
+    );
+}
+
+#[test]
+fn screen_chars_counts_what_one_backspace_deletes() {
+    use super::super::commit::screen_chars;
+    assert_eq!(screen_chars("abc"), 3);
+    assert_eq!(screen_chars("你好"), 2);
+    assert_eq!(screen_chars("❤\u{fe0f}"), 1);
+    assert_eq!(screen_chars("👨\u{200d}👩\u{200d}👧"), 1);
+    assert_eq!(screen_chars("👍\u{1f3fd}"), 1);
+    assert_eq!(screen_chars("\u{1f1e8}\u{1f1f3}"), 1);
+    assert_eq!(screen_chars("\u{1f1e8}\u{1f1f3}\u{1f1fa}\u{1f1f8}"), 2);
+    assert_eq!(screen_chars("1\u{fe0f}\u{20e3}"), 1);
+}
