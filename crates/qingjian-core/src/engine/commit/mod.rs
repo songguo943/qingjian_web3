@@ -190,6 +190,18 @@ impl Engine {
                 self.whole_scope()
             }
         };
+        // 英文词、emoji、颜文字、符号也按输入串记选择（没有读音，不泛化）：英文词 / emoji 没选过就往后挪的判断靠它。
+        // 英文词的键统一小写：回车原样上屏的 `Hello` 与英文候选 `hello` 是同一个词
+        let extra_choice = match candidate.kind {
+            CandidateKind::English => Some(candidate.text.to_ascii_lowercase()),
+            CandidateKind::Emoji | CandidateKind::Kaomoji | CandidateKind::Symbol => {
+                Some(candidate.text.clone())
+            }
+            _ => None,
+        };
+        if let Some(text) = &extra_choice {
+            self.learner.record_choice(&input, "", text);
+        }
         // BIP-39 连续命中计数：上面几条路里只有「英文候选」和「句末英文词」会经 `note_english_commit`
         // 累计命中；其余候选（中文、形码、云端词、emoji、快捷 / 自定义候选，或者句末不是英文词的整句）
         // 都跟「学英文词」无关，一并清零——不然中间夹一次中文上屏，之前攒的连续命中不该继续算数。
@@ -316,7 +328,7 @@ impl Engine {
                 | CandidateKind::Code
                 | CandidateKind::Cloud
                 | CandidateKind::Sentence
-        );
+        ) || extra_choice.is_some();
         // 自动空格补在上屏文本里，退格撤销按补过空格的字数数；自定义短语与快捷候选是用户 / 规则给定的原文，不改
         let verbatim = matches!(
             candidate.kind,
@@ -346,6 +358,13 @@ impl Engine {
                 .then(|| Choice {
                     reading: reading.clone(),
                     text: candidate.text.clone(),
+                })
+                // 英文词 / emoji 记的是没有读音的选择，撤销时按同一个键退回
+                .or_else(|| {
+                    extra_choice.map(|text| Choice {
+                        reading: String::new(),
+                        text,
+                    })
                 }),
                 transitions: std::mem::take(&mut self.recording),
                 typos,

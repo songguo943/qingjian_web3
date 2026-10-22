@@ -1,6 +1,6 @@
 use qingjian_dictionary::{Dictionary, WordList};
 
-use super::{Forgotten, Learner};
+use super::{ChoiceStats, Forgotten, Learner};
 use crate::candidate::Candidate;
 use crate::sentence::{Context, UserNgram};
 
@@ -72,6 +72,14 @@ impl Learner for MutedLearner {
 
     fn choice_weight(&self, input: &str, text: &str) -> u32 {
         self.inner.choice_weight(input, text)
+    }
+
+    fn choice_stats(&self, input: &str, text: &str) -> ChoiceStats {
+        self.inner.choice_stats(input, text)
+    }
+
+    fn input_evidence(&self, input: &str) -> u32 {
+        self.inner.input_evidence(input)
     }
 
     fn record_raw(&mut self, input: &str) {
@@ -200,6 +208,40 @@ mod tests {
 
         fn raw_count(&self, _input: &str) -> u32 {
             self.0
+        }
+    }
+
+    /// 只实现两个只读查询的桩。
+    struct Stats;
+
+    impl Learner for Stats {
+        fn record(&mut self, _candidate: &Candidate) {}
+
+        fn weight(&self, _text: &str) -> u32 {
+            0
+        }
+
+        fn choice_stats(&self, _input: &str, _text: &str) -> ChoiceStats {
+            ChoiceStats {
+                count: 3,
+                recent: 1.5,
+                fresh: 2,
+            }
+        }
+
+        fn input_evidence(&self, _input: &str) -> u32 {
+            7
+        }
+    }
+
+    #[test]
+    fn forwards_the_read_only_choice_queries_even_when_private() {
+        let mut learner = MutedLearner::new(Box::new(Stats));
+        for (private, disabled) in [(false, false), (true, false), (false, true)] {
+            learner.set_private(private);
+            learner.set_disabled(disabled);
+            assert_eq!(learner.choice_stats("a", "b").fresh, 2);
+            assert_eq!(learner.input_evidence("a"), 7);
         }
     }
 

@@ -722,3 +722,86 @@ fn input_log_records_the_session_and_page_turns() {
     };
     assert_eq!(commit.pages, 2);
 }
+
+/// 英文候选与它配的 emoji：词表里有 `smile`，emoji 表里 `smile` 配 😀 😄。
+fn smile_engine() -> Engine {
+    let words = WordList::parse("smile\nsmiled\n").unwrap();
+    let table = EmojiTable::parse("smile\t😀 😄\n").unwrap();
+    engine()
+        .with_english(words)
+        .with_emoji(table)
+        .with_learner(Box::new(CountingLearner(HashMap::new())))
+}
+
+fn pick_kind(engine: &mut Engine, input: &str, text: &str, kind: CandidateKind) {
+    engine.set_input(input);
+    let candidate = engine
+        .query()
+        .unwrap()
+        .candidates
+        .items
+        .into_iter()
+        .find(|c| c.text == text && c.kind == kind)
+        .unwrap_or_else(|| panic!("候选里没有 {kind:?} {text}"));
+    engine.commit(&candidate);
+}
+
+#[test]
+fn english_candidate_commit_records_a_choice_under_the_whole_input() {
+    let mut engine = smile_engine();
+    pick_kind(&mut engine, "smile", "smile", CandidateKind::English);
+    assert_eq!(engine.learner().choice_weight("smile", "smile"), 1);
+}
+
+#[test]
+fn english_choice_keys_are_lowercase() {
+    let words = WordList::parse("Company\n").unwrap();
+    let mut engine = engine()
+        .with_english(words)
+        .with_learner(Box::new(CountingLearner(HashMap::new())));
+    pick_kind(&mut engine, "company", "Company", CandidateKind::English);
+    assert_eq!(engine.learner().choice_weight("company", "company"), 1);
+    assert_eq!(engine.learner().choice_weight("company", "Company"), 0);
+}
+
+#[test]
+fn emoji_commit_records_a_choice() {
+    let mut engine = smile_engine();
+    pick_kind(&mut engine, "smile", "😀", CandidateKind::Emoji);
+    assert_eq!(engine.learner().choice_weight("smile", "😀"), 1);
+    assert_eq!(engine.learner().choice_weight("smile", "😄"), 0);
+}
+
+#[test]
+fn raw_english_commit_counts_as_choosing_that_english_word() {
+    let mut engine = engine().with_learner(Box::new(CountingLearner(HashMap::new())));
+    engine.set_input("hello");
+    engine.query().unwrap();
+    assert_eq!(engine.take_raw(), "hello");
+    assert_eq!(engine.learner().choice_weight("hello", "hello"), 1);
+}
+
+#[test]
+fn undoing_an_emoji_commit_unrecords_it() {
+    let mut engine = smile_engine();
+    pick_kind(&mut engine, "smile", "😀", CandidateKind::Emoji);
+    assert_eq!(engine.learner().choice_weight("smile", "😀"), 1);
+    // 一个字符的 emoji 退一格就整个删掉了；重打 smile 选了英文词，刚才那次 emoji 不算
+    engine.note_backspace();
+    pick_kind(&mut engine, "smile", "smile", CandidateKind::English);
+    assert_eq!(engine.learner().choice_weight("smile", "😀"), 0);
+    assert_eq!(engine.learner().choice_weight("smile", "smile"), 1);
+}
+
+#[test]
+fn private_input_records_no_extra_choices() {
+    let mut engine = smile_engine();
+    engine.set_private(true);
+    pick_kind(&mut engine, "smile", "smile", CandidateKind::English);
+    engine.set_input("smile");
+    engine.query().unwrap();
+    pick_kind(&mut engine, "smile", "😀", CandidateKind::Emoji);
+    engine.set_private(false);
+    assert_eq!(engine.learner().choice_weight("smile", "smile"), 0);
+    assert_eq!(engine.learner().choice_weight("smile", "😀"), 0);
+}
