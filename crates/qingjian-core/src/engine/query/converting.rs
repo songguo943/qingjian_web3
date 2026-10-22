@@ -167,7 +167,8 @@ impl Engine {
                 }
             }
         }
-        // 用户为这段输入选过一个正好拼成整段的词（`youshuo` 选过 又说）：整句不压在它前面，让给用户的选择
+        // 用户为这段输入选过一个正好拼成整段的词（`youshuo` 选过 又说）：整句不压在它前面，让给用户的选择。
+        // 整句上屏不按「输入串 → 整句文本」记选择次数，没有可比的另一边，所以选过一次就让
         if behind_spelled.is_none() && self.adaptive_learning {
             let letters = best.joined("");
             if items.iter().any(|c| {

@@ -123,6 +123,13 @@ mac 存在 `Session::spelling`（`Host::follow_highlight`）、Windows / Linux �
 `set_private_from`），互不覆盖——避免启发式的退出逻辑误撤系统声明的密码框状态。`commit/mod.rs` 在候选提交后按
 `candidate.kind` 决定是否 `reset_bip39_streak`（中文 / 形码 / 云端词 / emoji 等都算打断）。
 
+自适应偏好在 Core 的三处落点：① `query/demote.rs` 的 `demote_unchosen_extras`（`phonetic.rs` 在 `insert_emoji` 之后调）：同一输入串 `input_evidence` ≥ `DEMOTE_EVIDENCE` = 5 时，
+这次查询里 `fresh == 0`（英文词另要全局次数为 0）的英文词 / emoji / 颜文字 / 符号挪到前 `DEMOTE_AFTER_WORDS` = 3 个汉字候选（Chinese / Sentence / Code / Cloud）之后，不足 3 个就挪到最后一个汉字之后，
+排第一的英文词（拼音不像话那条）、已经在那之后的、没有汉字可挪的都不动；查的键与上屏时记的键一致（没有音节的候选按 `whole_scope`，其余按 `consumed_by`）；② `query/converting.rs` 的 `plain_sentence`：
+有个正好拼成整段的词被用户选过（`choice_weight > 0`）时复用 `behind_spelled`，整句排到它后面（整句上屏不按「输入串 → 整句文本」记选择，所以没有可比的另一边）；③ `Engine::preference_choice` 给词级排序与形码查询算有效次数。
+开关 `Engine::set_adaptive_learning`，三平台服务端启动与热重载都接（`apps/macos` `host/config`、Linux / Windows 的 `main.rs` 与 `dispatch/reload`），设置程序在「候选 → 排序」。
+回放口径：冷启动 `--replay` 日志，词首选 89.5% → 90.1%（β = 100）；整句首选 89.8% → 87.2%，是让位把 91 条「日志里 Space 上屏了当时排第一的错整句」改排到选过的词后面（`diqu` → 的去、`moren` → 没人 一类），按设计如此，不算回退。
+
 ## crates/qingjian-translate
 
 `Glossary`，本地 TSV 释义表（词性 + 译文）；`LevelTable`，词汇等级表（`assets/levels/levels-{en,ja}.tsv`，CEFR A1–C2 / JLPT N5–N1，
@@ -145,6 +152,14 @@ mac 存在 `Session::spelling`（`Host::follow_highlight`）、Windows / Linux �
   `user-days.tsv` 等 `*-days.tsv` 侧车文件里（主表保持旧格式两列 / 三列，旧版本读到新文件不丢数据；侧车丢了整份退回文件修改日），
   查询按 `count × 2^(−间隔天数/90)` 折算有效次数。衰减只用在排序权重上，记录本身不清——真要清等冷了一年
   （`COLD_DAYS`，落盘时连侧车一起清）；英文词最低按 1 保留在词表里。半衰期可 `--tune decay-days=` 覆盖，0 为不衰减。
+- **自适应偏好**（`[general] adaptive_learning`，缺省开，`--no-adaptive` 关）：`user-choices.tsv` 的每条选择除次数外再记 `dee` / `tick` / `fresh` 三列
+  （`输入串\t词\t次数\tdee\ttick\tfresh`，表头 `# 偏好时钟\t{clock}`；老版本只认前三列、`#` 行跳过，新文件降级照读）。时钟是**上屏次数**（RIME 的 tick），不是日历：
+  `dee = 1 + 旧 dee · exp(−Δclock/200)`（`frequency_learner/preference.rs`，`TIME_CONSTANT` = 200），`recent` 是它按当前时钟折算后的值，打字停几天不会把偏好衰减掉。
+  `fresh` 是启用以来这条选择被上屏的次数，只记字面键（不记 `<raw>`、读音键），英文词键小写；`Learner::input_evidence` 是某输入串 `fresh` 之和。
+  `Learner::choice_stats(输入串, 词) -> ChoiceStats { count, recent, fresh }`、`input_evidence` 都有零值缺省，`MutedLearner` 照转发；`choice_weight` 语义不变（只看 `count`）。
+  英文候选、emoji、颜文字、符号上屏现在也记一条选择（`engine/commit` 的 `extra_choice`，原样上屏的英文词在 `take_raw`），私密输入不记。
+  排序用有效次数 `count + RECENT_WEIGHT_BETA · recent`（`Engine::preference_choice`，β = 100，冷启动回放 3 / 10 / 30 / 100 / 300 里取的折中：词首选 90.2 / 90.2 / 90.2 / 90.1 / 90.0%，
+  `you → 又` 没命中 39 / 38 / 34 / 29 / 27 次，基线 89.5% 与 40 次）。竞争圈内按上下文，所以短期权重主要让「最近常选」的词进圈、并在圈外按次数推到前面。
 - `InputLog`：输入日志（`input-log.jsonl`，每次上屏一行：敲的键、切分、看到的前几个候选、选了第几个、来源、纠错、撤销，
   Core `InputLogger` trait 的落盘实现，`[general] input_log` 缺省开，只写本机，给离线回归评测与个人模型用）。
 - `UsageStats`：输入统计（`usage-hourly.tsv`，按小时记汉字 / 中文词 / 英文词 / 上屏 / 选词 / 首选 / 键数 / 打字毫秒 / 删过，Core `UsageMeter` trait 的实现，
