@@ -82,6 +82,11 @@ pub struct SearchLimits {
 
     /// 每个位置最多保留几条部分路径。
     pub beam_width: usize,
+
+    /// 格子前几名里有带惩罚的词（模糊音 / 敲错变体）占位时，按原样读的词额外保证留几个：预选分里个人次数是乘上去的，
+    /// 用得很多的词哪怕靠敲错变体读出来（`gou` 的 有 / 又 / 后 / 过）也会挤掉按原样读的 沟，`shangougou` 的 山沟沟 就读不出来。
+    /// 只留前三个：多留的词会和模糊音路径一起挤束搜索（回放里留六个整句首选掉 0.7 个点，留三个不动）。
+    pub exact_reserve: usize,
 }
 
 impl SearchLimits {
@@ -89,6 +94,7 @@ impl SearchLimits {
         span_candidates: 6,
         abbreviated_span_candidates: 20,
         beam_width: 8,
+        exact_reserve: 3,
     };
 }
 

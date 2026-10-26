@@ -311,11 +311,30 @@ where
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
     scored.dedup_by(|a, b| a.3.text == b.3.text);
     let abbreviated = span.iter().any(|p| p.iter().any(|t| !t.complete));
-    scored.truncate(if abbreviated {
+    let cap = if abbreviated {
         input.limits.abbreviated_span_candidates
     } else {
         input.limits.span_candidates
-    });
+    };
+    // 前 `cap` 名里有带惩罚的词（模糊音 / 敲错变体）占位时，按原样读的前 `exact_reserve` 条也留着，
+    // 见 [`SearchLimits::exact_reserve`]；没被挤占（没有带惩罚的词，或它们都在 `cap` 名之外）就照常截断
+    let crowded = scored
+        .iter()
+        .take(cap)
+        .any(|(_, penalty, _, _)| *penalty > 0.0);
+    if crowded {
+        let mut exact_rank = 0;
+        let mut index = 0;
+        scored.retain(|(_, penalty, _, _)| {
+            index += 1;
+            if *penalty == 0.0 {
+                exact_rank += 1;
+            }
+            index <= cap || (*penalty == 0.0 && exact_rank <= input.limits.exact_reserve)
+        });
+    } else {
+        scored.truncate(cap);
+    }
     scored
         .into_iter()
         .map(|(_, penalty, tone, hit)| SpanWord {
