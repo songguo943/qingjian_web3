@@ -3,6 +3,7 @@ use std::fmt;
 use qingjian_core::InputSource;
 
 use super::tally::Tally;
+use super::trusted::Trusted;
 
 /// 回放报告：按来源分组的计数，加上几条没命中的例子。
 #[derive(Debug, Default)]
@@ -49,6 +50,9 @@ pub struct Report {
 
     /// 解析不了的行数。
     pub unparsable: usize,
+
+    /// 按当时那次选择有多可信分开的命中（见 [`super::trusted`]）。
+    pub trusted: Trusted,
 
     /// 没命中首选的例子。
     pub misses: Vec<String>,
@@ -150,6 +154,35 @@ impl fmt::Display for Report {
         write_tally(f, "整句", &self.sentence)?;
         write_tally(f, "英文", &self.english)?;
         write_tally(f, "其他", &self.other)?;
+        if !self.trusted.is_empty() {
+            let Trusted {
+                picked,
+                accepted,
+                undone,
+            } = self.trusted;
+            writeln!(
+                f,
+                "可信口径（按当时那次选择有多可信分开算，词 / 整句 / 英文 / 其他合计）"
+            )?;
+            writeln!(
+                f,
+                "  挑选 {:>6} 条（当时不是首选、挑出来后没撤）：现在首选 {}",
+                picked.0,
+                percent(picked.1, picked.0)
+            )?;
+            writeln!(
+                f,
+                "  接受 {:>6} 条（当时就是首选、之后没撤）：现在仍首选 {}",
+                accepted.0,
+                percent(accepted.1, accepted.0)
+            )?;
+            writeln!(
+                f,
+                "  撤销 {:>6} 条（当时的首选被撤销或删掉重打）：现在仍把它排第一 {}（越低越好）",
+                undone.0,
+                percent(undone.1, undone.0)
+            )?;
+        }
         if !self.skipped.is_empty() {
             let parts: Vec<String> = self
                 .skipped
