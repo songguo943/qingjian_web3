@@ -9,6 +9,7 @@ pub(crate) mod line;
 mod report;
 mod scheme;
 mod tally;
+mod trusted;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -39,6 +40,8 @@ pub fn run(
     })?;
     let mut report = Report::default();
     let mut switcher = SchemeSwitcher::new(code, shuangpin);
+    let undone = trusted::undone_commits(&text);
+    let mut session = 0;
     for (number, raw) in text.lines().enumerate() {
         if raw.trim().is_empty() {
             continue;
@@ -56,6 +59,7 @@ pub fn run(
             InputLogEntry::Retype { .. } => report.retypes += 1,
             InputLogEntry::Session { .. } => {
                 report.sessions += 1;
+                session += 1;
                 if let Some(reranker) = reranker.as_deref_mut() {
                     reranker.reset();
                 }
@@ -98,10 +102,12 @@ pub fn run(
                 {
                     report.predictions_accepted += 1;
                 }
+                let label = trusted::label(&commit, session, &undone);
                 replay_commit(
                     engine,
                     &mut switcher,
                     &commit,
+                    label,
                     &mut report,
                     show_misses,
                     reranker.as_deref_mut(),
@@ -119,6 +125,7 @@ fn replay_commit(
     engine: &mut Engine,
     switcher: &mut SchemeSwitcher,
     commit: &qingjian_core::CommitEntry,
+    label: trusted::Label,
     report: &mut Report,
     show_misses: usize,
     reranker: Option<&mut Reranker>,
@@ -194,6 +201,7 @@ fn replay_commit(
             tally.corrected_now += 1;
         }
     }
+    report.trusted.note(label, position == Some(0));
     if position != Some(0) && report.misses.len() < show_misses {
         let top: Vec<String> = query
             .candidates
@@ -203,8 +211,9 @@ fn replay_commit(
             .map(|c| c.text.clone())
             .collect();
         report.misses.push(format!(
-            "[{}] {scope:<16} 选了 {:<8} 现在前三 {}{}",
+            "[{}·{}] {scope:<16} 选了 {:<8} 现在前三 {}{}",
             source_label(commit.source),
+            trusted::tag(label),
             commit.text,
             top.join(" / "),
             position.map_or(String::from("（不在候选里）"), |i| format!(
@@ -277,5 +286,37 @@ fn source_label(source: InputSource) -> &'static str {
         InputSource::Sentence => "整句",
         InputSource::English => "英文",
         _ => "其他",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qingjian_dictionary::Dictionary;
+
+    #[test]
+    fn trusted_counts_split_commits_by_how_much_their_choice_can_be_trusted() {
+        let log = [
+            // 当时的首选 你好，随后被撤销、改选 拟好
+            r#"{"t":"","event":"commit","id":1,"scope":"nihao","keys":"nihao","pinyin":"ni'hao","corrected":false,"text":"你好","source":"word","index":0,"top":["你好","拟好"],"scheme":"","english":false}"#,
+            r#"{"t":"","event":"retract","of":1,"text":"你好","chosen":"拟好"}"#,
+            // 用户挑了第二个
+            r#"{"t":"","event":"commit","id":2,"scope":"nihao","keys":"nihao","pinyin":"ni'hao","corrected":false,"text":"拟好","source":"word","index":1,"top":["你好","拟好"],"scheme":"","english":false}"#,
+            // 首选上屏、没撤
+            r#"{"t":"","event":"commit","id":3,"scope":"nihao","keys":"nihao","pinyin":"ni'hao","corrected":false,"text":"你好","source":"word","index":0,"top":["你好","拟好"],"scheme":"","english":false}"#,
+        ]
+        .join("\n");
+        let path = std::env::temp_dir().join(format!("qj-trusted-{}.jsonl", std::process::id()));
+        std::fs::write(&path, log).unwrap();
+        let mut engine =
+            Engine::new(Dictionary::parse("你好\tni hao\t1000\n拟好\tni hao\t10\n").unwrap());
+        let report = run(&mut engine, &path, 0, None, None, None).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(report.trusted.picked.0, 1);
+        assert_eq!(report.trusted.accepted.0, 1);
+        // 被撤销的那次：冷启动下 你好 仍排第一，算「仍犯同样的错」
+        assert_eq!(report.trusted.undone, (1, 1));
+        let text = report.to_string();
+        assert!(text.contains("可信口径"), "{text}");
     }
 }
