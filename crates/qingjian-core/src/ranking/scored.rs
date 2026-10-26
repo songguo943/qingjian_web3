@@ -36,8 +36,11 @@ pub struct Scored<'a> {
 /// 与 [`SortKey`] 的前几项同序，只是不拿文本做最后的平手项（预选边界上的平手谁留下无所谓）。
 pub type PreselectKey = u128;
 
-/// 排序键，越小越靠前。元组的顺序即排序规则，见模块文档；第五项是注音的声调代价，第六项是同输入串下的选择次数，
-/// 第七项是上下文得分（毫分，整数才能比较）。文本借自词库，键可以脱离 `Scored` 存放。
+/// 竞争圈的分组：排序键里排在选择次数前面的那几项，见 [`Scored::group`]。
+pub type Group = (bool, usize, usize, bool, u8);
+
+/// 排序键，越小越靠前。元组的顺序即排序规则，见模块文档；第五项是注音的声调代价，第六项是同输入串下选择次数的竞争键
+/// （[`contention_key`](super::contention_key)），第七项是上下文得分（毫分，整数才能比较）。文本借自词库，键可以脱离 `Scored` 存放。
 pub type SortKey<'a> = (
     Reverse<bool>,
     Reverse<usize>,
@@ -63,6 +66,17 @@ impl<'a> Scored<'a> {
         self.penalty > 0.0
     }
 
+    /// 排序键里排在选择次数前面的几项（第一档、覆盖、简拼数、末音节完整、声调代价）：这几项相同的候选才在选择次数上互相竞争。
+    pub(super) fn group(&self) -> Group {
+        (
+            self.first_tier(),
+            self.coverage,
+            self.abbreviated,
+            self.full_last,
+            self.tone_cost,
+        )
+    }
+
     pub(super) fn preselect_key(&self) -> PreselectKey {
         let frequency = if self.altered() {
             (f64::from(self.hit.frequency) * (-self.penalty).exp()) as u32
@@ -83,7 +97,8 @@ impl<'a> Scored<'a> {
             | (0xFF - chars)
     }
 
-    /// `choice` 是同输入串下的选择次数，`score` 是上下文得分（log 概率，已含用户加分与模糊音 / 敲错扣分）。
+    /// `choice` 是同输入串下选择次数的竞争键（见 [`super::contention_key`]），`score` 是上下文得分
+    /// （log 概率，已含用户加分与模糊音 / 敲错扣分）。
     pub(super) fn key(&self, choice: u32, score: f64) -> SortKey<'a> {
         (
             Reverse(self.first_tier()),
