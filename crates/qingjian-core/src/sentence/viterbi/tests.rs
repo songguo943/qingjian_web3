@@ -496,3 +496,48 @@ fn each_limit_field_reaches_the_search_independently() {
     .unwrap();
     assert_eq!(again.text, "开发");
 }
+
+/// 个人次数乘进格子预选分后，带惩罚的高频词（敲错变体读出的 有 / 又 / 后 / 过）会把按原样读的 沟 挤出每格前几名，
+/// 山沟沟 整句就读不出来（`shangougou` 出 三狗狗 / 山沟够）。按原样读的前几条另外留着。
+#[test]
+fn heavily_used_typo_variants_do_not_crowd_out_exact_words() {
+    let dictionary = Dictionary::parse(
+        "山沟\tshan gou\t463\n山\tshan\t100000\n沟\tgou\t85000\n狗\tgou\t100000\n够\tgou\t90000\n\
+         构\tgou\t80000\n有\tyou\t5000000\n又\tyou\t3000000\n后\thou\t4000000\n过\tguo\t4000000\n",
+    )
+    .unwrap();
+    let patterns = vec![
+        vec![SyllablePattern::complete("shan")],
+        vec![SyllablePattern::complete("gou")],
+        vec![
+            SyllablePattern::complete("gou"),
+            SyllablePattern::complete("you"),
+            SyllablePattern::complete("hou"),
+            SyllablePattern::complete("guo"),
+        ],
+    ];
+    let paths = convert_paths(
+        &SearchInput::new(
+            &[&dictionary],
+            &NoLanguageModel,
+            Personal::NONE,
+            |t: &str| {
+                if matches!(t, "有" | "又" | "后" | "过") {
+                    3000
+                } else {
+                    0
+                }
+            },
+            |_: usize, syllable: &str| if syllable == "gou" { 0.0 } else { 5.0 },
+        ),
+        &patterns,
+        false,
+        8,
+        &mut SpanCache::default(),
+    );
+    assert!(
+        paths.iter().any(|p| p.text == "山沟沟"),
+        "按原样读的 沟 不能被带惩罚的高频词挤出词图：{:?}",
+        paths.iter().map(|p| p.text.as_str()).collect::<Vec<_>>()
+    );
+}

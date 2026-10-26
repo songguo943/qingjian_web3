@@ -5,7 +5,7 @@ use qingjian_core::correction::TypoCosts;
 use qingjian_core::sentence::{Interpolation, SearchLimits};
 
 /// 可调的参数名。
-pub const KEYS: [&str; 15] = [
+pub const KEYS: [&str; 16] = [
     "lambda",
     "k",
     "cap",
@@ -21,6 +21,7 @@ pub const KEYS: [&str; 15] = [
     "span",
     "abbreviated-span",
     "beam",
+    "exact-reserve",
 ];
 
 /// 把一组 `名=值` 应用到引擎；没给的项保持缺省。
@@ -60,6 +61,7 @@ pub fn apply(engine: &mut Engine, settings: &[String]) -> Result<(), TuneError> 
             "span" => limits.span_candidates = count(value, key.trim())?,
             "abbreviated-span" => limits.abbreviated_span_candidates = count(value, key.trim())?,
             "beam" => limits.beam_width = count(value, key.trim())?,
+            "exact-reserve" => limits.exact_reserve = reserve(value, key.trim())?,
             other => {
                 return Err(TuneError::Unknown {
                     name: other.to_owned(),
@@ -83,6 +85,14 @@ fn count(value: f64, name: &str) -> Result<usize, TuneError> {
         return Err(TuneError::ZeroLimit(format!("{name}={value}")));
     }
     if value.fract() != 0.0 {
+        return Err(TuneError::Value(format!("{name}={value}")));
+    }
+    Ok(value as usize)
+}
+
+/// 可以为 0 的个数（0 是关掉这项保底，回到只按前几名截断）。
+fn reserve(value: f64, name: &str) -> Result<usize, TuneError> {
+    if value < 0.0 || value.fract() != 0.0 {
         return Err(TuneError::Value(format!("{name}={value}")));
     }
     Ok(value as usize)
@@ -167,6 +177,18 @@ mod tests {
         let limits = engine.search_limits();
         assert_eq!(limits.span_candidates, 2);
         assert_eq!(limits.abbreviated_span_candidates, 9);
+    }
+
+    #[test]
+    fn exact_reserve_is_tunable_and_zero_turns_it_off() {
+        let mut engine = engine();
+        assert_eq!(engine.search_limits().exact_reserve, 3);
+        apply(&mut engine, &["exact-reserve=0".to_owned()]).unwrap();
+        assert_eq!(engine.search_limits().exact_reserve, 0);
+        assert!(matches!(
+            apply(&mut engine, &["exact-reserve=1.5".to_owned()]),
+            Err(TuneError::Value(_))
+        ));
     }
 
     /// 0 是静默故障：整句转换会直接返回空，评测里表现为全线未命中，
