@@ -15,6 +15,7 @@ mod general;
 mod held;
 mod learning;
 mod lookup;
+mod mnemonic;
 mod nine_key;
 mod panel;
 mod polyphone;

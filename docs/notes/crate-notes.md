@@ -115,6 +115,14 @@ mac 存在 `Session::spelling`（`Host::follow_highlight`）、Windows / Linux �
 
 滑行（`swipe/`）：`SwipeDecoder` 把轨迹（`SwipePoint`）、字母键几何（`SwipeKey`：中心与宽高）与候选词（`SwipeLexicon`：小写字母串 + log10 词频先验，按首尾字母分 26×26 桶；`from_dictionary` 把主词库各词音节连起来、同串词频相加，`from_word_list` 把英文词表的 Zipf×1000 除回去）解成字母串，按可能性排。`ShapeDecoder` 按理想路径与轨迹的形状差（48 点重采样逐点均方 + 字母按序覆盖的动态规划 + 轨迹偏离最远点 + 起终点，键宽归一）乘 5 再减去先验打分，起终点 1.1 键宽内的桶才比、按「先验 − 起终点差」上限从高到低提前停，回前 5；词表空或起终点附近没有词时退回 `CornerDecoder`（起点、终点、拐点最近的键，拐点是前后各 0.4 键宽一段方向差过 50°、连成一串取最急的）。解出的字母由平台像点按一样逐个进组句。设计见 `docs/design/voice-and-swipe.md`。
 
+`engine::mnemonic`：BIP-39 英文助记词表（`bip39_english.txt`，官方 2048 词，`include_str!` 编译期嵌入，`LazyLock<HashSet>` 查表），
+挡钱包助记词被当成「新学到的英文词」学进 `user-english.tsv`。表里全是 about / time / work / code 这类最常用的词，所以**不逐词拦着**，
+只看连击：`Engine::note_english_commit`（`privacy.rs`）命中表的词先攒进 `bip39_pending`、不交给学习器；连击断了
+（`reset_bip39_streak`）再把攒着的照常学进去；连续 `BIP39_STREAK_THRESHOLD`（6）个「学英文词」事件都命中就把攒着的整串丢掉并转
+`heuristic_private`，前几个词也不会落盘，不依赖密码框识别。进私密输入时缓冲清空、私密期间不攒，免得离开密码框后被冲进词库。私密状态拆成 `system_private`（壳声明）/ `heuristic_private`（这条启发式）两路「或」（`privacy.rs` 的
+`set_private_from`），互不覆盖——避免启发式的退出逻辑误撤系统声明的密码框状态。`commit/mod.rs` 在候选提交后按
+`candidate.kind` 决定是否 `reset_bip39_streak`（中文 / 形码 / 云端词 / emoji 等都算打断）。
+
 ## crates/qingjian-translate
 
 `Glossary`，本地 TSV 释义表（词性 + 译文）；`LevelTable`，词汇等级表（`assets/levels/levels-{en,ja}.tsv`，CEFR A1–C2 / JLPT N5–N1，
