@@ -305,6 +305,53 @@ fn unfinished_last_syllable_is_not_recorded_as_a_typo() {
     }
 }
 
+/// 敲的拼音本身就是词库里的词（`lianxiang` → 联想）时，靠模糊音读成多词整句（n/l：年 + 想）的路径不许插到它前面。
+/// 整句路径的得分只认词频与上下文，按模糊音读更高分就会盖过用户明明敲对了的词；
+/// 关掉敲错变体后路径仍靠模糊音读成多词整句的，整句照给，但排在敲对的词后面（模糊音就是给这类敲法用的，不能删）。
+#[test]
+fn fuzzy_sentence_does_not_outrank_a_word_spelled_exactly() {
+    let dictionary =
+        Dictionary::parse("联想\tlian xiang\t100\n年\tnian\t100000\n想\txiang\t100000\n").unwrap();
+    let mut engine = Engine::new(dictionary);
+    engine.set_fuzzy(FuzzyRules {
+        n_l: true,
+        ..FuzzyRules::default()
+    });
+    engine.set_input("lianxiang");
+    let query = engine.query().unwrap();
+    let first = &query.candidates.items[0];
+    assert_eq!(first.text, "联想");
+    assert_ne!(first.kind, CandidateKind::Sentence);
+    // 按模糊音读出来的 年想 仍然给，紧跟在敲对的词后面
+    let fuzzy = query
+        .candidates
+        .items
+        .iter()
+        .position(|c| c.kind == CandidateKind::Sentence && c.text == "年想")
+        .expect("模糊音读出的整句不该被删掉");
+    assert_eq!(fuzzy, 1);
+}
+
+/// 模糊音读出的是单个词（`yingan` 开 in/ing → 阴暗）时仍作为词候选排在最前，不被原样读法里的双词整句（赢 + 按）顶掉：
+/// 上面那条只拦「模糊音读成多词整句」，不能把「模糊音读成一个词」也一并换成原样路径。
+#[test]
+fn fuzzy_single_word_still_leads_over_the_as_typed_two_word_sentence() {
+    let dictionary = Dictionary::parse(
+        "阴暗\tyin an\t100000\n阴干\tyin gan\t1000\n赢\tying\t200000\n按\tan\t200000\n",
+    )
+    .unwrap();
+    let mut engine = Engine::new(dictionary);
+    engine.set_fuzzy(FuzzyRules {
+        in_ing: true,
+        ..FuzzyRules::default()
+    });
+    engine.set_input("yingan");
+    let query = engine.query().unwrap();
+    let first = &query.candidates.items[0];
+    assert_eq!(first.text, "阴暗");
+    assert_ne!(first.kind, CandidateKind::Sentence);
+}
+
 #[test]
 fn fuzzy_rules_add_homophones_behind_exact_hits() {
     // 词库里只有 kai fa 系列加一个 哈；敲 kaiha 没开 f/h 时只有前缀词 开（开哈 原样读得通，词图的敲错边翻不过它），
