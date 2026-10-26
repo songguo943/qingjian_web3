@@ -282,10 +282,11 @@ fn english_in_chinese_off_stops_the_english_tail() {
         Engine::new(Dictionary::parse(DICT).unwrap()).with_english(words)
     };
 
-    // 开着时与 issue 的复现一致：整句把 nine 当英文尾段
+    // 开着时拼音读法也赢：#766 复现时只拿第一种切分 na nin e（那您额，很差）跟 那 + nine 比，英文赢了；
+    // 现在按最好的切分 na ni ne（那你呢）比，拼音读法本来就该赢（见 plain_reading_is_scored_by_its_best_segmentation_not_the_first）
     let mut on = build();
     on.set_input("nanine");
-    assert_eq!(texts_of(&on)[0], "那nine");
+    assert_eq!(texts_of(&on)[0], "那你呢");
 
     let mut off = build();
     off.set_english_in_chinese(false);
@@ -815,4 +816,28 @@ fn english_word_is_not_buried_by_reading_key_choices() {
     commit(&mut engine, "wenti", "问题");
     engine.set_input("went");
     assert_eq!(texts_of(&engine)[0], "went");
+}
+
+/// 两种读法比分时，拼音读法要拿**最好的切分**去比，不是第一种：`zhegene` 第一种切分是 zhe gen e（这跟阿，很差），
+/// 第二种 zhe ge ne（这个呢）才是拼音该有的分数。只比第一种的话，英文 gene 一点点优势（甚至个人加成改了第一种切分里的字）
+/// 就赢下来，头段只剩 这，这个 / 这个呢 整个打不出来。
+#[test]
+fn plain_reading_is_scored_by_its_best_segmentation_not_the_first() {
+    const DICT: &str = "这\tzhe\t600000\n个\tge\t500000\n呢\tne\t300000\n这个\tzhe ge\t400000\n跟\tgen\t20000\n\
+        根\tgen\t10000\n阿\te\t3000\n额\te\t2000\n";
+    let words = WordList::parse("gene\tgene\t4500\n").unwrap();
+    let mut engine = Engine::new(Dictionary::parse(DICT).unwrap()).with_english(words);
+    engine.set_input("zhegene");
+    let query = engine.query().unwrap();
+    let texts: Vec<&str> = query
+        .candidates
+        .items
+        .iter()
+        .map(|c| c.text.as_str())
+        .collect();
+    assert!(
+        texts.contains(&"这个"),
+        "拼音读法该赢（这个呢），整段按拼音读，这个 要在候选里：{texts:?}"
+    );
+    assert_ne!(texts[0], "这gene", "{texts:?}");
 }
