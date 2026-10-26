@@ -271,6 +271,9 @@ english_in_chinese = true
 english_max_in_chinese = 4
 # 有中文候选时英文最高排到第几位，1–9；1 为不限制，没有中文候选时英文照旧第一
 english_min_position = 1
+# 严格匹配：整段拼音已能按完整音节读完时，不再给只覆盖前一部分的前缀词（yiban 不出 一边 / 一把）；缺省 false。
+# 开了之后敲得不准时靠这些词救回的候选（jitai → 几天）会没有
+strict_match = false
 # 候选后面一次最多配几个 emoji（kaixin → 开心 😄），0–3；0 时候选里只有字词
 emoji = 3
 # 候选后面一次最多配几个颜文字（ku → 哭 (T_T)），0–3

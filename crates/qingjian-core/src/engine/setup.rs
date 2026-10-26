@@ -527,6 +527,16 @@ impl Engine {
         self.english_min_position = position.clamp(1, 9);
     }
 
+    /// 严格匹配（配置 `[general] strict_match`，缺省关）：整段输入已能按完整音节读完时，不再收备选切分的前缀词。
+    /// 代价：敲得不准、靠这些词救回的候选（`jitai` → 几天）会没有。
+    pub fn set_strict_match(&mut self, on: bool) {
+        self.strict_match = on;
+    }
+
+    pub fn strict_match(&self) -> bool {
+        self.strict_match
+    }
+
     /// 中英混输里中文候选是否总排在英文词前面（配置 `[general] chinese_first`，缺省关）。
     /// 关着时拼音「不像话」的输入英文词排第一（`hello` 先英文再 荷兰咯）；开了英文词固定第二。
     pub fn set_chinese_first(&mut self, on: bool) {

@@ -97,6 +97,7 @@ impl Router {
             .set_shift_letter_compose(config.general.shift_letter.compose());
         self.engine.set_learning(config.general.learning);
         self.engine.set_chinese_first(config.general.chinese_first);
+        self.engine.set_strict_match(config.general.strict_match);
         self.engine
             .set_english_in_chinese(config.general.english_in_chinese);
         self.engine

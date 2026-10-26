@@ -537,3 +537,63 @@ fn committing_the_rest_after_a_separator_split_consumes_it() {
     }
     assert!(engine.composition().is_empty());
 }
+
+fn yiban_texts(strict: bool) -> Vec<String> {
+    let dictionary = Dictionary::parse(
+        "一般\tyi ban\t60000\n一边\tyi bian\t14000\n一把\tyi ba\t12000\n一部\tyi bu\t16000\n以便\tyi bian\t3900\n一\tyi\t900000\n",
+    )
+    .unwrap();
+    let mut engine = Engine::new(dictionary);
+    engine.set_strict_match(strict);
+    engine.set_input("yiban");
+    engine
+        .query()
+        .unwrap()
+        .candidates
+        .items
+        .into_iter()
+        .map(|c| c.text)
+        .collect()
+}
+
+/// 严格匹配：第一种切分已把整段输入按完整音节读完（`yiban` → yi ban）时，其他切分（`yi ba n…` / `yi b… an`）
+/// 只是同一串字母的另一种读法，它们的前缀词（一把 / 一边 / 一部）读音与敲的对不上，不收；第一种切分自己的前缀词照给。
+#[test]
+fn strict_match_drops_prefix_words_of_alternate_segmentations() {
+    let texts = yiban_texts(true);
+    assert_eq!(texts[0], "一般");
+    for stray in ["一边", "一把", "一部", "以便"] {
+        assert!(
+            !texts.contains(&stray.to_owned()),
+            "{stray} 与 yiban 的读音对不上：{texts:?}"
+        );
+    }
+    assert!(texts.contains(&"一".to_owned()));
+}
+
+/// 缺省关：备选切分的前缀词照旧给——它们也是敲得不准时的救回路径（`jitai` → 几天）。
+#[test]
+fn prefix_words_of_alternate_segmentations_stay_by_default() {
+    let texts = yiban_texts(false);
+    for kept in ["一边", "一把", "一部", "以便"] {
+        assert!(texts.contains(&kept.to_owned()), "{texts:?}");
+    }
+}
+
+/// 严格匹配只收窄「整段已读完」的输入：还在敲的输入（末尾是单个声母）备选切分的前缀词照给，`woxiangc` 先出 我想 才能逐词上屏。
+#[test]
+fn strict_match_keeps_prefix_words_while_the_input_is_unfinished() {
+    let dictionary = Dictionary::parse("我想\two xiang\t50000\n我\two\t900000\n").unwrap();
+    let mut engine = Engine::new(dictionary);
+    engine.set_strict_match(true);
+    engine.set_input("woxiangc");
+    let texts: Vec<String> = engine
+        .query()
+        .unwrap()
+        .candidates
+        .items
+        .into_iter()
+        .map(|c| c.text)
+        .collect();
+    assert!(texts.contains(&"我想".to_owned()), "{texts:?}");
+}

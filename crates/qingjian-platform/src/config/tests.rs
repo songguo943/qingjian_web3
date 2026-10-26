@@ -66,6 +66,7 @@ fn general_and_shortcut_sections_parse() {
     assert_eq!(config.general.kaomoji, EmojiCount::new(1));
     assert_eq!(config.general.symbols, EmojiCount::new(1));
     assert!(config.general.english_in_chinese);
+    assert!(!config.general.strict_match);
     assert_eq!(
         config.general.english_max_in_chinese(),
         qingjian_core::ENGLISH_CANDIDATES_MAX

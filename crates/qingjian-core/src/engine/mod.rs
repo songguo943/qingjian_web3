@@ -138,6 +138,9 @@ pub struct Engine {
     /// 中文模式下整段是英文词（或像英文词的开头）时给不给英文候选与补全（配置 `[general] english_in_chinese`，缺省开）。
     english_in_chinese: bool,
 
+    /// 严格匹配（配置 `[general] strict_match`，缺省关）：整段输入已能按完整音节读完时，不再收备选切分的前缀词（`yiban` 不出 一边 / 一把）。
+    strict_match: bool,
+
     /// 中英混输时中文候选总在英文词前面（缺省关：拼音不像话的输入英文词排第一，常在中文模式里打英文词的人靠它）。
     chinese_first: bool,
 
@@ -507,6 +510,7 @@ impl Engine {
             full_width_punctuation: true,
             custom_phrases: Vec::new(),
             english_in_chinese: true,
+            strict_match: false,
             chinese_first: false,
             english_max_in_chinese: ENGLISH_CANDIDATES_MAX,
             english_min_position: 1,

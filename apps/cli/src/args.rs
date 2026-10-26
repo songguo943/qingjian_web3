@@ -111,6 +111,10 @@ pub struct Args {
     #[arg(long)]
     pub show_tones: bool,
 
+    /// 打开严格匹配（配置 [general] strict_match = true）：整段拼音已能按完整音节读完时不收备选切分的前缀词，评测两种口径用
+    #[arg(long)]
+    pub strict_match: bool,
+
     /// 双拼方案（xiaohe / ziranma / microsoft / sogou / abc / xiaolang / shoudao / jiajia / ziguang，或用户双拼方案的目录），覆盖配置里的 `[general]` scheme；off 强制全拼
     #[arg(long)]
     pub shuangpin: Option<String>,

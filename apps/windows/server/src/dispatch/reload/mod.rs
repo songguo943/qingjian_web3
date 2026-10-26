@@ -249,6 +249,7 @@ impl Router {
             .set_symbol_limit(usize::from(config.general.symbols.get()));
         self.engine
             .set_english_in_chinese(config.general.english_in_chinese);
+        self.engine.set_strict_match(config.general.strict_match);
         self.engine
             .set_english_max_in_chinese(config.general.english_max_in_chinese());
         self.engine
