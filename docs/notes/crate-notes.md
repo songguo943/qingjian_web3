@@ -122,7 +122,7 @@ mac 存在 `Session::spelling`（`Host::follow_highlight`）、Windows / Linux �
 
 ## crates/qingjian-learning
 
-- `FrequencyLearner`：用户选择次数（`user.tsv`，带最近使用日）、按输入串记的选择（`user-choices.tsv`，词级排序里同输入串选过的优先；泛化在**记录侧**完成：
+- `FrequencyLearner`：用户选择次数（`user.tsv`，带最近使用日）、按输入串记的选择（`user-choices.tsv`，词级排序里同输入串选过的优先；次数不少于组内最高者一半的都进竞争圈、交给上下文，`ba` 的 把 121 / 吧 84 才能在「好」后面出 吧，明显落后的排在圈外，见 `ranking::contention_key`；泛化在**记录侧**完成：
   选择除记字面键外，读音键（候选音节连写）上另记一份——`wod` / 双拼选的，换回全拼再打同样认账；单字母简拼（`g`）不泛化，
   那里翻页选词的意图太弱，带进全拼键会反过来压用户后来认真打的（`g` 选的 该 压住 `gai` 下的 改）。查询只看字面键，
   更短的查询（`yiy`）不带走更长输入（`yiyi`）下的选择，隔串压不到别人；英文词位置的仲裁同样只按字面键）、用户词（`user-words.tsv`，主词库同格式，

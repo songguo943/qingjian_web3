@@ -6,7 +6,9 @@
 //! 3. 切分里非末尾的简拼音节少者优先（`kaifa` 按 `kai fa` 读的 开放 排在按 `kai f a` 读的 开放啊 前）
 //! 4. 最后一个音节完整匹配优先（`kaifa` → 开发 排在 开放 前）
 //! 5. 注音敲了声调时，声调代价小者优先（ㄇㄚ 一声 → 妈 排在 吗 前；表与规则见 `zhuyin::tone`）
-//! 6. 同一输入串下用户选过的次数（Learner 的 `choice_weight`：`mgs` 选过 美国式，下次 `mgs` 它就是首选）
+//! 6. 同一输入串下用户选过的次数（Learner 的 `choice_weight`：`mgs` 选过 美国式，下次 `mgs` 它就是首选）；
+//!    次数不少于最高者一半的词都在竞争圈内（`ba` 的 把 121 / 吧 84），圈内的交给下一条的上下文得分，所以「好」后面仍能出 吧；
+//!    明显落后（不到一半）的排在圈外，见 [`contention_key`]
 //! 7. 上下文得分：语言模型给的 `log P(词 | 上一个上屏的词)`（个人 bigram 插值，模型不认识的按词库词频兜底并扣分，
 //!    见 `sentence::transition_log_prob`）加用户选择次数的加分（[`weight_bonus`]，对数且封顶），模糊音命中扣 ln 2、
 //!    敲错变体命中扣那类敲错的代价（`correction::TypoKind::cost`，个人敲错表打折）。
@@ -17,9 +19,24 @@
 
 mod scored;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub use scored::{PreselectKey, Scored, SortKey};
+
+/// 选择次数在同一组里至少占最高者的 1/[`CONTENTION_RATIO`] 才算进入竞争圈。
+pub const CONTENTION_RATIO: u32 = 2;
+
+/// 同输入串下选择次数的竞争键，越大越靠前：圈内的（次数不少于最高者一半，`ba` 的 把 121 / 吧 84，`bi` 的 笔 16 / 比 10）
+/// 键相同，交给下一条的上下文得分决定；圈外的（明显落后，不到一半）按次数排在圈子后面，所以新学的词（1 对 0、5 对 0）
+/// 仍然一次就能上位。以组内最高者为基准而不是看绝对次数，没有「次数跨过某个整数就变成硬优先」的悬崖。
+/// 圈内键取最大值，圈外键是次数本身，仍是全序，排序键可以事先算好。
+pub fn contention_key(choice: u32, leader: u32) -> u32 {
+    if choice.saturating_mul(CONTENTION_RATIO) >= leader {
+        u32::MAX
+    } else {
+        choice
+    }
+}
 
 /// 用户选择次数的加分系数：加分 = 系数 × ln(1 + min(次数, [`WEIGHT_CAP`]))。
 /// 这个加分只负责「同音词里偏向用户常选的那个」，所以既取对数又封顶（最多约 1.5 分，e^1.5 ≈ 4.5 倍），
@@ -58,12 +75,25 @@ pub fn rank(
         keyed.truncate(preselect);
         items.extend(keyed.into_iter().map(|(_, item)| item));
     }
-    let mut keyed: Vec<(SortKey<'_>, Scored<'_>)> = items
+    let scored: Vec<(Scored<'_>, u32, f64)> = items
         .drain(..)
         .map(|item| {
             let (choice, log_prob) = context(&item);
+            (item, choice, log_prob)
+        })
+        .collect();
+    // 每组（见 [`Scored::group`]）里选择次数最高的：竞争圈以它为基准，次数不少于它一半的都在圈内
+    let mut leader: HashMap<scored::Group, u32> = HashMap::new();
+    for (item, choice, _) in &scored {
+        let top = leader.entry(item.group()).or_insert(0);
+        *top = (*top).max(*choice);
+    }
+    let mut keyed: Vec<(SortKey<'_>, Scored<'_>)> = scored
+        .into_iter()
+        .map(|(item, choice, log_prob)| {
             let score = log_prob + weight_bonus(item.weight) - item.penalty;
-            (item.key(choice, score), item)
+            let key = contention_key(choice, leader[&item.group()]);
+            (item.key(key, score), item)
         })
         .collect();
     keyed.sort_unstable_by(|a, b| a.0.cmp(&b.0));
@@ -181,6 +211,76 @@ mod tests {
         }
         rank(&mut items, usize::MAX, |_| (0, -2.0));
         assert_eq!(items[0].hit.text, "吧");
+    }
+
+    /// 选择次数不少于最高者一半的词都进入竞争，由上下文决定；只有明显落后（不到一半）的才排在圈外。
+    fn rank_homophones(counts: (u32, u32), context_prefers: &str) -> String {
+        let make = |text, frequency| Scored {
+            hit: hit(text, "ba", frequency, true),
+            full_last: true,
+            coverage: 2,
+            abbreviated: 0,
+            weight: 0,
+            penalty: 0.0,
+            tone_cost: 0,
+        };
+        let mut items = vec![make("把", 3_000_000), make("吧", 2_000_000)];
+        rank(&mut items, usize::MAX, |s| {
+            (
+                if s.hit.text == "把" {
+                    counts.0
+                } else {
+                    counts.1
+                },
+                if s.hit.text == context_prefers {
+                    -1.0
+                } else {
+                    -6.0
+                },
+            )
+        });
+        items[0].hit.text.to_owned()
+    }
+
+    #[test]
+    fn comparable_choice_counts_let_context_decide() {
+        // ba：把 121 次 / 吧 84 次，差不多，上下文决定（「好」后面出 吧、「帮我」后面出 把）
+        assert_eq!(rank_homophones((121, 84), "吧"), "吧");
+        assert_eq!(rank_homophones((121, 84), "把"), "把");
+        // 比 10 次对 笔 16 次也算差不多
+        assert_eq!(rank_homophones((16, 10), "吧"), "吧");
+    }
+
+    #[test]
+    fn contention_has_no_count_cliff() {
+        // 不管绝对次数落在哪：127 对 94（比例 1.35）与 15 对 11 一样交给上下文，不会因为跨过 2 的幂次就变成硬优先
+        for counts in [
+            (127, 94),
+            (128, 94),
+            (255, 200),
+            (15, 11),
+            (16, 11),
+            (63, 40),
+            (64, 40),
+        ] {
+            assert_eq!(rank_homophones(counts, "吧"), "吧", "{counts:?}");
+        }
+    }
+
+    #[test]
+    fn clearly_lagging_candidates_stay_behind() {
+        // 次数悬殊（5 对 0、10 对 4）：新学的词仍然一次就能上位，上下文翻不了盘
+        assert_eq!(rank_homophones((5, 0), "吧"), "把");
+        assert_eq!(rank_homophones((10, 4), "吧"), "把");
+        // 恰好一半（10 对 5）仍在圈内
+        assert_eq!(rank_homophones((10, 5), "吧"), "吧");
+    }
+
+    #[test]
+    fn one_selection_beats_never_chosen() {
+        assert_eq!(rank_homophones((0, 1), "把"), "吧");
+        // 一次对两次也在圈内（1 × 2 >= 2），交给上下文
+        assert_eq!(rank_homophones((2, 1), "吧"), "吧");
     }
 
     #[test]
