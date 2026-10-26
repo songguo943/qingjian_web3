@@ -397,6 +397,9 @@ const MIN_PINYIN_LIKE_TAIL_LETTERS: usize = 4;
 /// 句中切到英文的代价（log 概率）：尾段像拼音时英文读法要比拼音读法高出这么多才胜出。拍的，攒够日志后用 `--replay` 调。
 const ENGLISH_SWITCH_PENALTY: f64 = 3.0;
 
+/// 拼音读法与英文尾比分时，最多拿前几种切分去转换取最好的（切分是按「整段怎么切」排的，前几种已经覆盖常见读法）。
+const PLAIN_SEGMENTATIONS: usize = 4;
+
 /// 英文词频的下限（Zipf）：没有词频的词按百万分之一算。
 const ENGLISH_ZIPF_FLOOR: f64 = 3.0;
 

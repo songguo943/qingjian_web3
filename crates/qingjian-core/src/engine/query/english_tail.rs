@@ -124,9 +124,16 @@ impl Engine {
     /// `woxiangxuexirust` 上实测头段拿 +6.9、整段拿 +21.2，个人模型越肥差距越大——
     /// 用户打得越多混输越打不出来。这是「哪种输入方式」的判断，本来也该由静态模型定，不归个人频次管。
     pub(super) fn mixed_beats_plain(&self, scope: &str, tail: &EnglishTail) -> bool {
+        let comparable = |c: &Conversion| c.static_score - c.penalty;
+        // 拼音读法拿最好的切分去比：`zhegene` 的第一种切分是 zhe gen e（这跟阿，很差），zhe ge ne（这个呢）才是拼音该有的分数，
+        // 只比第一种，英文 gene 一点优势（或个人加成改了第一种切分里的字）就赢下来，这个 / 这个呢 整个打不出来
         let convert = |text: &str, whole: bool| {
-            let segmentations = parser::segment(text).ok()?;
-            self.convert_sentence_with(&segmentations.first()?.patterns(), true, whole)
+            parser::segment(text)
+                .ok()?
+                .iter()
+                .take(PLAIN_SEGMENTATIONS)
+                .filter_map(|s| self.convert_sentence_with(&s.patterns(), true, whole))
+                .max_by(|a, b| comparable(a).total_cmp(&comparable(b)))
         };
         let (Some(head), Some(plain)) = (
             convert(&scope[..tail.head_len], false),
@@ -137,7 +144,6 @@ impl Engine {
         if head.has_placeholder() {
             return false;
         }
-        let comparable = |c: &Conversion| c.static_score - c.penalty;
         let mixed = comparable(&head) + tail.log_prob - ENGLISH_SWITCH_PENALTY;
         let plain_score = comparable(&plain);
         tracing::debug!(
