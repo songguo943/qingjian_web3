@@ -2,6 +2,7 @@
 
 mod aux_code;
 mod candidate_menu;
+mod chaizi;
 mod cloud;
 mod cloud_trigger;
 mod code;
@@ -13,6 +14,7 @@ mod email;
 mod emoji;
 mod english;
 mod general;
+mod generated;
 mod held;
 mod learning;
 mod lookup;
@@ -27,7 +29,6 @@ mod shuangpin;
 mod spacing;
 mod spelling;
 mod traditional;
-mod uuid;
 mod vocabulary;
 mod voice;
 mod zhuyin;

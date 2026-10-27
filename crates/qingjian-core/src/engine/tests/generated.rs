@@ -1,4 +1,4 @@
-//! UUID 快捷候选：`vuuid`、全拼下的 `uuid`、双拼的 `Vuuid`。
+//! 生成型快捷候选：UUID（`vuuid`、全拼下的 `uuid`、双拼的 `Vuuid`）与时间戳（`vts`）。
 
 use super::*;
 
@@ -42,4 +42,20 @@ fn shuangpin_uses_shifted_expression_key() {
     assert!(!texts_of(&engine).iter().any(|text| text.len() == 36));
     engine.set_input("Vuuid");
     assert_eq!(texts_of(&engine).len(), 4);
+}
+
+#[test]
+fn expression_timestamp_is_stable_within_a_composition() {
+    let mut engine = engine();
+    engine.set_input("vts");
+    let first = texts_of(&engine);
+    assert_eq!(first.len(), 4, "{first:?}");
+    assert!(first[0].bytes().all(|b| b.is_ascii_digit()));
+    assert!(first[1].ends_with('Z'));
+    assert!(!engine.expression_input('1'));
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    assert_eq!(texts_of(&engine), first);
+    // 前缀上的算式不受影响
+    engine.set_input("vt");
+    assert!(engine.expression_input('1'));
 }

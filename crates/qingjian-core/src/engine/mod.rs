@@ -295,8 +295,8 @@ pub struct Engine {
     /// 上一次查询的摘要，上屏时写进输入日志。
     last_query: std::cell::RefCell<Option<query::QuerySnapshot>>,
 
-    /// 这段组句出过的 UUID。壳每次刷新都重查候选，同一段组句里得是同一组值；新一段组句的第一键清掉。
-    uuid_forms: std::cell::RefCell<Option<Vec<String>>>,
+    /// 这段组句生成过的 UUID / 时间戳：(关键字, 各写法)。壳每次刷新都重查候选，同一段组句里得是同一组值；新一段组句的第一键清掉。
+    generated_forms: std::cell::RefCell<Option<(String, Vec<String>)>>,
 
     /// 上一次算过的拼写纠正：(作用域, 结果)。query 算一次，commit / take_raw 复用，别再跑一遍变体枚举。
     correction_cache: std::cell::RefCell<Option<(String, Option<Correction>)>>,
@@ -573,7 +573,7 @@ impl Engine {
             displayed: Vec::new(),
             examples: vocabulary::ExampleCollector::default(),
             last_query: std::cell::RefCell::new(None),
-            uuid_forms: std::cell::RefCell::new(None),
+            generated_forms: std::cell::RefCell::new(None),
             recording: Vec::new(),
             history: InputHistory::default(),
             prediction_sequence: 0,

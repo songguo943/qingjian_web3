@@ -154,7 +154,8 @@ fn privacy_change_discards_pending_cloud_reply() {
 #[test]
 fn question_answer_uses_cloud_candidate_without_pinyin_syllables() {
     let (mut router, requests, responses) = setup();
-    for c in "umumumu".chars() {
+    // 本地拆不出字的问题：umumumu 本地就拆出 森，云端同字的答案会被去重
+    for c in "usangemu".chars() {
         router.handle(ClientMessage::Key {
             session: SessionId(1),
             event: KeyEvent::new(c as u32, Some(c), KeyModifiers::default()),
