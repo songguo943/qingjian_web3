@@ -11,6 +11,18 @@
 我们在上游之上的改动：可信口径回放、格子保底留按原样读的词（山沟沟）、混输比分按最好的切分（这个呢、#766）、
 模糊音整句排在敲对的词后面、选择次数竞争圈、BIP-39 助记词先攒着不学、严格匹配、自适应偏好（近期权重、英文 / emoji 降级、整句让位）。
 
+## 与远端保持一致（自动）
+
+远端是自己的仓库 `fork`（songguo943/qingjian_web3）；上游 `origin` 只拉不推，不提 PR。
+
+- `.git/hooks/` 里的 `post-commit` / `post-merge` / `post-rewrite` 调 `auto-push-fork`：当前分支跟踪 `fork` 时，
+  提交、合并、amend / rebase 之后自动 `git push --force-with-lease fork <分支>`；失败只记 `.git/auto-push.log`，不挡提交。
+  这些钩子在 `.git/` 里，不进代码库，换机器要重装。
+- 推送用 songguo943 身份：仓库级 `credential.https://github.com/songguo943/qingjian_web3.git.helper` 现场调
+  `gh auth token -u songguo943` 取令牌（不切换 gh 的全局活动账号，令牌不落进配置）。
+- 新建分支要自动推，先 `git push -u fork <分支>` 设好跟踪。
+- PR #290 的源分支 `fix/bip39-mnemonic-protection` 不推：推了会改动上游的那个 PR。
+
 ## 同步上游
 
 ```bash
